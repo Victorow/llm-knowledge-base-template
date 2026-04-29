@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --directory /ABSOLUTE/PATH/TO/llm-knowledge-base python /ABSOLUTE/PATH/TO/llm-knowledge-base/hooks/session-start.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --directory /ABSOLUTE/PATH/TO/llm-knowledge-base python /ABSOLUTE/PATH/TO/llm-knowledge-base/hooks/session-end.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --directory /ABSOLUTE/PATH/TO/llm-knowledge-base python /ABSOLUTE/PATH/TO/llm-knowledge-base/hooks/pre-compact.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

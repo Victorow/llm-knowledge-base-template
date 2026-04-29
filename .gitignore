@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# uv
+uv.lock
+
+# Runtime state and logs
+scripts/state.json
+scripts/last-flush.json
+scripts/flush.log
+scripts/compile.log
+scripts/session-flush-*.md
+scripts/flush-context-*.md
+
+# Reports (generated)
+reports/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Obsidian (optional - uncomment to ignore the vault config)
+# kb/.obsidian/workspace.json
+# kb/.obsidian/workspace-mobile.json

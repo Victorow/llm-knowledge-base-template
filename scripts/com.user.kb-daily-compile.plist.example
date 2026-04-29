@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd template for end-of-day knowledge base compilation.
+
+  Setup (see README "Automating end-of-day compile" for full steps):
+    1. Copy this file to ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
+    2. Replace /ABSOLUTE/PATH/TO/llm-knowledge-base with the real path
+    3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
+    4. (Optional) launchctl kickstart gui/$(id -u)/com.user.kb-daily-compile  # run once now
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.kb-daily-compile</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/ABSOLUTE/PATH/TO/llm-knowledge-base/scripts/compile-daily.sh</string>
+    </array>
+
+    <!-- Run every day at 17:00 local time. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>17</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- If the Mac was asleep at 17:00, run as soon as it wakes. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/ABSOLUTE/PATH/TO/llm-knowledge-base/scripts/compile.log</string>
+    <key>StandardErrorPath</key>
+    <string>/ABSOLUTE/PATH/TO/llm-knowledge-base/scripts/compile.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
