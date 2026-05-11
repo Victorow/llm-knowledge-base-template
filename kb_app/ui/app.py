@@ -132,7 +132,8 @@ def launch_ui(
     if not no_tray:
         from kb_app.ui.tray import TrayController
 
-        TrayController(app, window).install()
+        tray = TrayController(app, window)
+        tray.install()
 
     return int(app.exec())
 
