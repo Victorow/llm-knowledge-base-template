@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # LLM Knowledge Base — Linux installer
-# Installs to user directories only; no sudo required.
+# Installs to user directories only; no root privileges required.
 #
 # Usage:
 #   sh install.sh [BUILD_DIR] [options]

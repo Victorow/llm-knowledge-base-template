@@ -14,6 +14,7 @@ class UiModelTests(unittest.TestCase):
         self.assertEqual(
             page_ids,
             [
+                "tutorial",
                 "dashboard",
                 "setup",
                 "profiles",

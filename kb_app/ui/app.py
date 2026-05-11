@@ -135,6 +135,7 @@ class ControlPanelWindow:
 
     def __init__(self, kb_root: Path, app_db: Path) -> None:
         QtCore, QtWidgets = require_pyside6()
+        self.QtCore = QtCore
         self.QtWidgets = QtWidgets
         self.kb_root = Path(kb_root)
         self.kb_paths = resolve_kb_paths(self.kb_root)
@@ -253,17 +254,35 @@ class ControlPanelWindow:
 
     def _tutorial_controls(self, layout):
         QtWidgets = self.QtWidgets
+        Qt = self.QtCore.Qt
 
-        # ── Status box ──────────────────────────────────────────────
-        status_box = QtWidgets.QGroupBox("Status Atual")
-        status_layout = QtWidgets.QVBoxLayout(status_box)
+        # Wrap everything in a scroll area so it never clips
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        container = QtWidgets.QWidget()
+        vbox = QtWidgets.QVBoxLayout(container)
+        vbox.setSpacing(12)
+        vbox.setContentsMargins(4, 4, 4, 4)
 
-        self._tut_profile_lbl      = QtWidgets.QLabel()
-        self._tut_claude_hooks_lbl = QtWidgets.QLabel()
-        self._tut_codex_hooks_lbl  = QtWidgets.QLabel()
-        self._tut_claude_mcp_lbl   = QtWidgets.QLabel()
-        self._tut_codex_mcp_lbl    = QtWidgets.QLabel()
+        # ── Status card ──────────────────────────────────────────────
+        status_card = QtWidgets.QFrame()
+        status_card.setStyleSheet(
+            "QFrame { border: 1px solid #444; border-radius: 8px;"
+            " background: #1e2a1e; padding: 4px; }"
+        )
+        sc_layout = QtWidgets.QVBoxLayout(status_card)
+        sc_layout.setSpacing(6)
 
+        status_title = QtWidgets.QLabel("📊  Status Atual")
+        status_title.setStyleSheet("font-size: 13px; font-weight: bold; border: none;")
+        sc_layout.addWidget(status_title)
+
+        self._tut_profile_lbl      = self._status_label(QtWidgets)
+        self._tut_claude_hooks_lbl = self._status_label(QtWidgets)
+        self._tut_codex_hooks_lbl  = self._status_label(QtWidgets)
+        self._tut_claude_mcp_lbl   = self._status_label(QtWidgets)
+        self._tut_codex_mcp_lbl    = self._status_label(QtWidgets)
         for lbl in (
             self._tut_profile_lbl,
             self._tut_claude_hooks_lbl,
@@ -271,102 +290,149 @@ class ControlPanelWindow:
             self._tut_claude_mcp_lbl,
             self._tut_codex_mcp_lbl,
         ):
-            lbl.setWordWrap(True)
-            status_layout.addWidget(lbl)
+            sc_layout.addWidget(lbl)
 
-        refresh_status_btn = QtWidgets.QPushButton("Atualizar Status")
-        refresh_status_btn.clicked.connect(self.refresh_tutorial)
-        status_layout.addWidget(refresh_status_btn)
-        layout.addWidget(status_box)
+        refresh_btn = QtWidgets.QPushButton("🔄  Atualizar Status")
+        refresh_btn.setFixedHeight(30)
+        refresh_btn.clicked.connect(self.refresh_tutorial)
+        sc_layout.addWidget(refresh_btn)
+        vbox.addWidget(status_card)
 
-        # ── Steps ────────────────────────────────────────────────────
-        def step(number: str, title: str, body: str) -> QtWidgets.QWidget:
-            frame = QtWidgets.QFrame()
-            frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
-            vbox = QtWidgets.QVBoxLayout(frame)
-            header = QtWidgets.QLabel(f"<b>Passo {number} — {title}</b>")
-            header.setStyleSheet("font-size: 13px;")
-            desc = QtWidgets.QLabel(body)
+        # ── Step helper ──────────────────────────────────────────────
+        def make_step(num: int, icon: str, title: str, body_html: str,
+                      btn_label: str | None = None, btn_slot=None):
+            card = QtWidgets.QFrame()
+            card.setStyleSheet(
+                "QFrame { border: 1px solid #3a3a4a; border-radius: 8px;"
+                " background: #1e1e2e; padding: 4px; }"
+            )
+            cl = QtWidgets.QVBoxLayout(card)
+            cl.setSpacing(6)
+
+            # Header row
+            hrow = QtWidgets.QHBoxLayout()
+            badge = QtWidgets.QLabel(str(num))
+            badge.setFixedSize(30, 30)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setStyleSheet(
+                "background: #4a6fa5; color: white; border-radius: 15px;"
+                " font-weight: bold; font-size: 13px; border: none;"
+            )
+            title_lbl = QtWidgets.QLabel(f"{icon}  <b>{title}</b>")
+            title_lbl.setStyleSheet("font-size: 13px; border: none;")
+            title_lbl.setTextFormat(Qt.RichText)
+            hrow.addWidget(badge)
+            hrow.addSpacing(8)
+            hrow.addWidget(title_lbl)
+            hrow.addStretch(1)
+            cl.addLayout(hrow)
+
+            # Body
+            desc = QtWidgets.QLabel(f"<p style='margin:0; line-height:160%'>{body_html}</p>")
             desc.setWordWrap(True)
-            desc.setStyleSheet("color: #444;")
-            vbox.addWidget(header)
-            vbox.addWidget(desc)
-            return frame, vbox
+            desc.setTextFormat(Qt.RichText)
+            desc.setStyleSheet("color: #aaa; border: none; padding-left: 38px;")
+            cl.addWidget(desc)
 
-        # Step 1 — Perfil
-        f1, v1 = step("1", "Criar Perfil  ✅",
-            "Um perfil diz ao app onde salvar sua base de conhecimento. "
-            "Se você ainda não tem um, vá em <b>Profiles</b>, preencha o nome "
-            "e a pasta, e clique em <b>Create</b> e depois <b>Activate Selected</b>.")
-        btn_profiles = QtWidgets.QPushButton("Ir para Profiles →")
-        btn_profiles.clicked.connect(lambda: self.sidebar.setCurrentRow(3))
-        v1.addWidget(btn_profiles)
-        layout.addWidget(f1)
+            if btn_label and btn_slot:
+                btn = QtWidgets.QPushButton(f"  {btn_label}  →")
+                btn.setFixedHeight(30)
+                btn.setStyleSheet(
+                    "QPushButton { background: #2d4a7a; color: white; border-radius: 5px;"
+                    " font-weight: bold; }"
+                    " QPushButton:hover { background: #3a5f9f; }"
+                )
+                btn.clicked.connect(btn_slot)
+                brow = QtWidgets.QHBoxLayout()
+                brow.addStretch(1)
+                brow.addWidget(btn)
+                cl.addLayout(brow)
 
-        # Step 2 — Hooks
-        f2, v2 = step("2", "Instalar Hooks",
-            "Hooks são pequenos scripts que o Claude Code / Codex chama "
-            "automaticamente ao início e fim de cada sessão. "
-            "Sem eles o app não captura nada.\n\n"
-            "→ Clique em <b>Ir para Hooks</b>\n"
-            "→ Escolha o cliente (Claude Code ou Codex)\n"
-            "→ Clique em <b>Install Hooks</b>")
-        btn_hooks = QtWidgets.QPushButton("Ir para Hooks →")
-        btn_hooks.clicked.connect(lambda: self.sidebar.setCurrentRow(_PAGE_HOOKS))
-        v2.addWidget(btn_hooks)
-        layout.addWidget(f2)
+            return card
 
-        # Step 3 — Restart
-        f3, _ = step("3", "Reiniciar o Claude Code / Codex",
-            "Depois de instalar os hooks, feche completamente o Claude Code "
-            "(ou Codex) e abra de novo. Isso faz os hooks entrarem em vigor.")
-        layout.addWidget(f3)
+        # Step 1
+        vbox.addWidget(make_step(1, "👤", "Criar Perfil",
+            "Um perfil diz ao app <b>onde salvar</b> sua base de conhecimento.<br>"
+            "Se ainda não tem um: vá em <b>Profiles</b>, escreva um nome, escolha "
+            "a pasta e clique em <b>Create</b> → <b>Activate Selected</b>.",
+            "Ir para Profiles", lambda: self.sidebar.setCurrentRow(3)))
 
-        # Step 4 — Work normally
-        f4, _ = step("4", "Trabalhar Normalmente",
-            "A partir de agora, toda sessão com o Claude Code é capturada "
-            "automaticamente em segundo plano. Você não precisa fazer nada — "
-            "basta trabalhar como sempre.")
-        layout.addWidget(f4)
+        # Step 2
+        vbox.addWidget(make_step(2, "🔗", "Instalar Hooks",
+            "Hooks são scripts que o <b>Claude Code / Codex</b> chama "
+            "automaticamente ao iniciar e encerrar cada sessão.<br>"
+            "Sem eles o app não captura nada.<br><br>"
+            "① Clique em <b>Ir para Hooks</b><br>"
+            "② Escolha o cliente: <b>Claude Code</b> ou <b>Codex</b><br>"
+            "③ Clique em <b>Install Hooks</b> e aguarde ✅",
+            "Ir para Hooks", lambda: self.sidebar.setCurrentRow(_PAGE_HOOKS)))
 
-        # Step 5 — Compile
-        f5, v5 = step("5", "Compilar os Logs (após as primeiras sessões)",
-            "Depois de alguns dias de trabalho, compile os logs para gerar "
-            "artigos de wiki organizados. Você pode fazer isso quando quiser, "
-            "ou ativar a compilação automática diária em <b>Settings</b>.\n\n"
-            "→ Clique em <b>Ir para Operations</b>\n"
-            "→ Clique em <b>Compile Changed</b>")
-        btn_ops = QtWidgets.QPushButton("Ir para Operations →")
-        btn_ops.clicked.connect(lambda: self.sidebar.setCurrentRow(_PAGE_OPERATIONS))
-        v5.addWidget(btn_ops)
-        layout.addWidget(f5)
+        # Step 3
+        vbox.addWidget(make_step(3, "🔄", "Reiniciar o Claude Code / Codex",
+            "Depois de instalar os hooks, <b>feche completamente</b> o Claude Code "
+            "ou Codex e abra novamente.<br>"
+            "Isso faz os hooks e o MCP entrarem em vigor."))
 
-        # Step 6 — Query
-        f6, v6 = step("6", "Consultar sua Base de Conhecimento",
-            "Pergunte em linguagem natural sobre o que você já aprendeu:\n"
-            "\"Como eu fiz X?\", \"Qual biblioteca eu uso para Y?\"\n\n"
-            "→ Clique em <b>Ir para Knowledge</b>\n"
-            "→ Digite sua pergunta\n"
-            "→ Clique em <b>Query</b>")
-        btn_know = QtWidgets.QPushButton("Ir para Knowledge →")
-        btn_know.clicked.connect(lambda: self.sidebar.setCurrentRow(_PAGE_KNOWLEDGE))
-        v6.addWidget(btn_know)
-        layout.addWidget(f6)
+        # Step 4
+        vbox.addWidget(make_step(4, "💻", "Trabalhar Normalmente",
+            "A partir de agora, toda sessão com o Claude Code é "
+            "<b>capturada automaticamente</b> em segundo plano.<br>"
+            "Você não precisa fazer nada — só trabalhar como sempre."))
 
-        # MCP info box
-        mcp_box = QtWidgets.QGroupBox("Sobre o MCP (integração automática com a IA)")
-        mcp_vbox = QtWidgets.QVBoxLayout(mcp_box)
+        # Step 5
+        vbox.addWidget(make_step(5, "⚙️", "Compilar os Logs",
+            "Após suas primeiras sessões, compile os logs para gerar "
+            "<b>artigos de wiki</b> organizados.<br>"
+            "Você pode fazer isso quando quiser, ou ativar a compilação "
+            "automática diária em <b>Settings</b>.<br><br>"
+            "① Clique em <b>Ir para Operations</b><br>"
+            "② Clique em <b>Compile Changed</b>",
+            "Ir para Operations", lambda: self.sidebar.setCurrentRow(_PAGE_OPERATIONS)))
+
+        # Step 6
+        vbox.addWidget(make_step(6, "🔍", "Consultar sua Base de Conhecimento",
+            "Pergunte em linguagem natural sobre o que você já aprendeu:<br>"
+            "<i>\"Como eu fiz X?\", \"Qual biblioteca eu uso para Y?\"</i><br><br>"
+            "① Clique em <b>Ir para Knowledge</b><br>"
+            "② Digite sua pergunta<br>"
+            "③ Clique em <b>Query</b>",
+            "Ir para Knowledge", lambda: self.sidebar.setCurrentRow(_PAGE_KNOWLEDGE)))
+
+        # MCP info card
+        mcp_card = QtWidgets.QFrame()
+        mcp_card.setStyleSheet(
+            "QFrame { border: 1px solid #4a3a1a; border-radius: 8px;"
+            " background: #2a1e0a; padding: 4px; }"
+        )
+        mc_layout = QtWidgets.QVBoxLayout(mcp_card)
+        mcp_title = QtWidgets.QLabel("🤖  Sobre o MCP — Integração automática com a IA")
+        mcp_title.setStyleSheet("font-size: 13px; font-weight: bold; border: none;")
         mcp_desc = QtWidgets.QLabel(
+            "<p style='margin:0; line-height:160%; color:#aaa'>"
             "O MCP permite que o Claude Code / Codex consulte sua KB "
-            "<b>automaticamente durante a conversa</b>, sem você precisar pedir.\n\n"
-            "Foi configurado durante a instalação. Se precisar reconfigurar:\n"
-            "  • Windows: abra o terminal e execute  "
-            "<code>LLMKnowledgeBase.exe setup-mcp --status</code>\n"
-            "  • Linux: <code>llm-knowledge-base setup-mcp --status</code>"
+            "<b>automaticamente durante a conversa</b>, sem você precisar pedir.<br>"
+            "Foi configurado durante a instalação. Para verificar ou reconfigurar:<br>"
+            "• Windows: <code>LLMKnowledgeBase.exe setup-mcp --status</code><br>"
+            "• Linux:&nbsp;&nbsp; <code>llm-knowledge-base setup-mcp --status</code>"
+            "</p>"
         )
         mcp_desc.setWordWrap(True)
-        mcp_vbox.addWidget(mcp_desc)
-        layout.addWidget(mcp_box)
+        mcp_desc.setTextFormat(Qt.RichText)
+        mcp_desc.setStyleSheet("border: none;")
+        mc_layout.addWidget(mcp_title)
+        mc_layout.addWidget(mcp_desc)
+        vbox.addWidget(mcp_card)
+
+        vbox.addStretch(1)
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
+
+    def _status_label(self, QtWidgets) -> object:
+        lbl = QtWidgets.QLabel()
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(self.QtCore.Qt.RichText)
+        lbl.setStyleSheet("border: none; padding: 1px 0;")
+        return lbl
 
     def refresh_tutorial(self) -> None:
         """Update live status labels on the Tutorial page."""
@@ -543,10 +609,28 @@ class ControlPanelWindow:
 
     def _tick(self) -> None:
         """Called every 2 s by QTimer — runs one pending job and refreshes UI."""
-        result = self.runner.run_next()
-        if result.status != "idle":
+        try:
+            result = self.runner.run_next()
+            if result.status == "succeeded":
+                self.bottom_bar.setText("✅  Job concluído com sucesso.")
+                self.refresh_jobs()
+                self.refresh_tutorial()
+                self.refresh_dashboard()
+            elif result.status == "failed":
+                try:
+                    job = self.job_store.get_job(result.job_id)
+                    err = job.error_message or "erro desconhecido"
+                except Exception:
+                    err = "erro desconhecido"
+                self.bottom_bar.setText(f"❌  Job falhou: {err}")
+                self.refresh_jobs()
+                self.refresh_tutorial()
+            elif result.status == "cancelled":
+                self.bottom_bar.setText("⚠️  Job cancelado.")
+                self.refresh_jobs()
+        except Exception as exc:
+            self.bottom_bar.setText(f"❌  Erro no runner: {exc}")
             self.refresh_jobs()
-            self.refresh_dashboard()
 
     def _daily_controls(self, layout):
         QtWidgets = self.QtWidgets
