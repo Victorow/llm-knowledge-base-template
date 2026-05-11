@@ -34,6 +34,17 @@ class UiModelTests(unittest.TestCase):
         self.assertEqual(job["job_type"], "manual_memory")
         self.assertEqual(job["payload"]["content"], "x")
 
+    def test_system_actions_map_to_job_types(self) -> None:
+        install = build_quick_action_job("install_autostart", profile_id=1)
+        schedule = build_quick_action_job(
+            "configure_daily_schedule",
+            profile_id=1,
+            payload={"enabled": True, "time": "17:00"},
+        )
+
+        self.assertEqual(install["job_type"], "install_autostart")
+        self.assertEqual(schedule["job_type"], "configure_daily_schedule")
+
     def test_dashboard_summary_formats_missing_state(self) -> None:
         summary = format_dashboard_summary(
             profile_name=None,

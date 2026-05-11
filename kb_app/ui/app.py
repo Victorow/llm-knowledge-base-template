@@ -47,6 +47,10 @@ ACTION_TO_JOB_TYPE = {
     "manual_memory": "manual_memory",
     "diagnostics_export": "diagnostics_export",
     "backend_smoke_test": "backend_smoke_test",
+    "flush_test": "flush_test",
+    "install_autostart": "install_autostart",
+    "remove_autostart": "remove_autostart",
+    "configure_daily_schedule": "configure_daily_schedule",
 }
 
 
@@ -204,6 +208,7 @@ class ControlPanelWindow:
         row = self.QtWidgets.QHBoxLayout()
         layout.addLayout(row)
         self._button(row, "Backend Smoke Test", lambda: self.enqueue_action("backend_smoke_test"))
+        self._button(row, "Flush Test", lambda: self.enqueue_action("flush_test"))
         self._button(row, "Enable Daily Compile", self.enable_daily_compile)
 
     def _profiles_controls(self, layout):
@@ -281,6 +286,8 @@ class ControlPanelWindow:
         row = QtWidgets.QHBoxLayout()
         layout.addLayout(row)
         self._button(row, "Save Scheduler", self.save_scheduler_settings)
+        self._button(row, "Install Autostart", lambda: self.enqueue_action("install_autostart"))
+        self._button(row, "Remove Autostart", lambda: self.enqueue_action("remove_autostart"))
 
     def _diagnostics_controls(self, layout):
         row = self.QtWidgets.QHBoxLayout()
@@ -357,9 +364,13 @@ class ControlPanelWindow:
         self.bottom_bar.setText("Daily compile enabled")
 
     def save_scheduler_settings(self) -> None:
-        self.profile_store.set_setting("daily_compile_enabled", self.daily_compile_checkbox.isChecked())
-        self.profile_store.set_setting("daily_compile_time", self.daily_compile_time.text().strip() or "17:00")
-        self.bottom_bar.setText("Scheduler settings saved")
+        self.enqueue_action(
+            "configure_daily_schedule",
+            {
+                "enabled": self.daily_compile_checkbox.isChecked(),
+                "time": self.daily_compile_time.text().strip() or "17:00",
+            },
+        )
 
     def export_diagnostics_now(self) -> None:
         bundle = export_diagnostics(self.app_paths, self.kb_paths)
