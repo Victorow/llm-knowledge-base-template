@@ -8,6 +8,10 @@ venv/
 # uv
 uv.lock
 
+# Build artifacts
+build/
+dist/
+
 # Runtime state and logs
 scripts/state.json
 scripts/last-flush.json

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LLM Knowledge Base
+Comment=Personal LLM knowledge base control panel
+Exec=__APP_DIR__/LLMKnowledgeBase ui
+Terminal=false
+Categories=Utility;Development;
+StartupNotify=true
