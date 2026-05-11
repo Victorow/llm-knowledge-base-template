@@ -629,8 +629,7 @@ class ControlPanelWindow:
             return
         # Peek at queue to show meaningful status without blocking
         try:
-            conn = self.job_store._connection()
-            with conn:
+            with self.job_store._connection() as conn:
                 row = conn.execute(
                     "SELECT job_type FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
                 ).fetchone()
