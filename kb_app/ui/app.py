@@ -227,11 +227,33 @@ class ControlPanelWindow:
         return profile_list
 
     def _hooks_controls(self, layout):
-        row = self.QtWidgets.QHBoxLayout()
+        QtWidgets = self.QtWidgets
+
+        client_row = QtWidgets.QHBoxLayout()
+        layout.addLayout(client_row)
+        client_row.addWidget(QtWidgets.QLabel("AI Client:"))
+        self.hooks_client_combo = QtWidgets.QComboBox()
+        self.hooks_client_combo.addItem("Claude Code", "claude")
+        self.hooks_client_combo.addItem("Codex", "codex")
+        client_row.addWidget(self.hooks_client_combo)
+        client_row.addStretch(1)
+
+        desc = QtWidgets.QLabel(
+            "Claude Code — hooks em ~/.claude/settings.json (SessionStart, SessionEnd, PreCompact)\n"
+            "Codex — hooks em ~/.codex/hooks.json (SessionStart, Stop)"
+        )
+        desc.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(desc)
+
+        row = QtWidgets.QHBoxLayout()
         layout.addLayout(row)
-        self._button(row, "Install Hooks", lambda: self.enqueue_action("install_hooks"))
-        self._button(row, "Repair Hooks", lambda: self.enqueue_action("repair_hooks"))
-        self._button(row, "Remove Hooks", lambda: self.enqueue_action("remove_hooks"))
+        self._button(row, "Install Hooks", lambda: self._hooks_action("install_hooks"))
+        self._button(row, "Repair Hooks",  lambda: self._hooks_action("repair_hooks"))
+        self._button(row, "Remove Hooks",  lambda: self._hooks_action("remove_hooks"))
+
+    def _hooks_action(self, action: str) -> None:
+        client = self.hooks_client_combo.currentData()
+        self.enqueue_action(action, {"client": client})
 
     def _daily_controls(self, layout):
         QtWidgets = self.QtWidgets

@@ -26,7 +26,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameter
 
 [Tasks]
 Name: "desktopicon";    Description: "Criar atalho na área de trabalho";         GroupDescription: "Atalhos:"; Flags: unchecked
-Name: "configure_mcp";  Description: "Conectar ao Claude Code automaticamente (recomendado)"; GroupDescription: "Claude Code:"; Flags: checked
+Name: "configure_mcp";  Description: "Conectar ao Claude Code automaticamente (recomendado)"; GroupDescription: "Claude Code:"
 
 [Run]
 ; Lança o app ao final da instalação
