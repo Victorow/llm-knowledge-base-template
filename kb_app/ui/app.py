@@ -9,6 +9,7 @@ from typing import Any
 from kb_app.core.paths import resolve_app_paths, resolve_kb_paths
 from kb_app.diagnostics.export import export_diagnostics
 from kb_app.jobs.queue import JobStore
+from kb_app.jobs.runner import JobRunner
 from kb_app.profiles.store import ProfileStore
 
 PYSIDE_PACKAGE_NAME = "PySide6"
@@ -123,18 +124,25 @@ class ControlPanelWindow:
     """Small operational control panel built with Qt widgets."""
 
     def __init__(self, kb_root: Path, app_db: Path) -> None:
-        _qtcore, QtWidgets = require_pyside6()
+        QtCore, QtWidgets = require_pyside6()
         self.QtWidgets = QtWidgets
         self.kb_root = Path(kb_root)
         self.kb_paths = resolve_kb_paths(self.kb_root)
         self.app_paths = resolve_app_paths()
         self.profile_store = ProfileStore(Path(app_db))
         self.job_store = JobStore(Path(app_db))
+        self.runner = JobRunner(self.job_store, profile_store=self.profile_store)
 
         self.window = QtWidgets.QMainWindow()
         self.window.setWindowTitle("LLM Knowledge Base")
         self.window.resize(1100, 720)
         self._build()
+
+        # Process one queued job every 2 seconds
+        self._job_timer = QtCore.QTimer()
+        self._job_timer.setInterval(2000)
+        self._job_timer.timeout.connect(self._tick)
+        self._job_timer.start()
 
     def show(self) -> None:
         self.refresh_all()
@@ -254,6 +262,13 @@ class ControlPanelWindow:
     def _hooks_action(self, action: str) -> None:
         client = self.hooks_client_combo.currentData()
         self.enqueue_action(action, {"client": client})
+
+    def _tick(self) -> None:
+        """Called every 2 s by QTimer — runs one pending job and refreshes UI."""
+        result = self.runner.run_next()
+        if result.status != "idle":
+            self.refresh_jobs()
+            self.refresh_dashboard()
 
     def _daily_controls(self, layout):
         QtWidgets = self.QtWidgets
