@@ -235,21 +235,21 @@ fi
 if [ "${SKIP_CLAUDE_MCP}" = "0" ]; then
     echo "  Configuring Claude Code MCP integration..."
     "${APP_DIR}/LLMKnowledgeBase" \
+        --kb-root "${KB_ROOT}" \
         setup-mcp --client claude \
         --exe-path "${APP_DIR}/LLMKnowledgeBase" \
-        --kb-root "${KB_ROOT}" \
         2>/dev/null && echo "  Claude MCP configured." \
-        || echo "  Warning: could not configure Claude MCP. Run 'llm-knowledge-base setup-mcp --client claude --kb-root \"${KB_ROOT}\"' manually."
+        || echo "  Warning: could not configure Claude MCP. Run 'llm-knowledge-base --kb-root \"${KB_ROOT}\" setup-mcp --client claude' manually."
 fi
 
 if [ "${SKIP_CODEX_MCP}" = "0" ]; then
     echo "  Configuring Codex MCP integration..."
     "${APP_DIR}/LLMKnowledgeBase" \
+        --kb-root "${KB_ROOT}" \
         setup-mcp --client codex \
         --exe-path "${APP_DIR}/LLMKnowledgeBase" \
-        --kb-root "${KB_ROOT}" \
         2>/dev/null && echo "  Codex MCP configured." \
-        || echo "  Warning: could not configure Codex MCP. Run 'llm-knowledge-base setup-mcp --client codex --kb-root \"${KB_ROOT}\"' manually."
+        || echo "  Warning: could not configure Codex MCP. Run 'llm-knowledge-base --kb-root \"${KB_ROOT}\" setup-mcp --client codex' manually."
 fi
 
 # ---------------------------------------------------------------------------

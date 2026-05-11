@@ -14,11 +14,11 @@ _SERVER_NAME = "llm-knowledge-base"
 
 
 # ---------------------------------------------------------------------------
-# Claude Code — JSON config
+# Claude Desktop — JSON config  (claude_desktop_config.json)
 # ---------------------------------------------------------------------------
 
 def find_claude_config() -> Path:
-    """Return the likely path of Claude Code's desktop config file."""
+    """Return the path of Claude Desktop's config file."""
     system = platform.system()
     if system == "Windows":
         appdata = os.environ.get("APPDATA", "")
@@ -36,7 +36,7 @@ def configure_mcp(
     exe_path: Path | None = None,
     config_path: Path | None = None,
 ) -> Path:
-    """Add (or update) the llm-knowledge-base MCP entry in Claude's config."""
+    """Add (or update) the llm-knowledge-base MCP entry in Claude Desktop's config."""
     target = config_path or find_claude_config()
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -51,7 +51,7 @@ def configure_mcp(
     if exe_path and exe_path.exists():
         entry: dict = {
             "command": str(exe_path),
-            "args": ["mcp", "--kb-root", str(kb_root)],
+            "args": ["--kb-root", str(kb_root), "mcp"],
         }
     else:
         entry = {
@@ -66,7 +66,7 @@ def configure_mcp(
 
 
 def remove_mcp(*, config_path: Path | None = None) -> Path | None:
-    """Remove the llm-knowledge-base MCP entry from Claude's config."""
+    """Remove the llm-knowledge-base MCP entry from Claude Desktop's config."""
     target = config_path or find_claude_config()
     if not target.exists():
         return None
@@ -86,8 +86,90 @@ def remove_mcp(*, config_path: Path | None = None) -> Path | None:
 
 
 def mcp_is_configured(*, config_path: Path | None = None) -> bool:
-    """Return True if the MCP entry already exists in Claude's config."""
+    """Return True if the MCP entry already exists in Claude Desktop's config."""
     target = config_path or find_claude_config()
+    if not target.exists():
+        return False
+    try:
+        config = json.loads(target.read_text(encoding="utf-8"))
+        return _SERVER_NAME in config.get("mcpServers", {})
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Claude Code CLI — ~/.claude.json  (user-scoped MCP servers)
+# ---------------------------------------------------------------------------
+
+def find_claude_code_config() -> Path:
+    """Return the path of Claude Code CLI's user config (~/.claude.json)."""
+    return Path.home() / ".claude.json"
+
+
+def configure_mcp_claude_code(
+    kb_root: Path,
+    *,
+    exe_path: Path | None = None,
+    config_path: Path | None = None,
+) -> Path:
+    """Add (or update) the llm-knowledge-base MCP entry in Claude Code CLI's config.
+
+    Claude Code CLI (the `claude` command) reads user-scoped MCP servers from
+    ~/.claude.json under the top-level `mcpServers` key, with a `type` field.
+    """
+    target = config_path or find_claude_code_config()
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    config: dict = {}
+    if target.exists():
+        try:
+            config = json.loads(target.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            config = {}
+        _backup(target)
+
+    if exe_path and exe_path.exists():
+        entry: dict = {
+            "type": "stdio",
+            "command": str(exe_path),
+            "args": ["--kb-root", str(kb_root), "mcp"],
+        }
+    else:
+        entry = {
+            "type": "stdio",
+            "command": "uv",
+            "args": ["run", "python", "-m", "kb_mcp", "--kb-root", str(kb_root)],
+        }
+
+    config.setdefault("mcpServers", {})
+    config["mcpServers"][_SERVER_NAME] = entry
+    target.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    return target
+
+
+def remove_mcp_claude_code(*, config_path: Path | None = None) -> Path | None:
+    """Remove the llm-knowledge-base MCP entry from Claude Code CLI's config."""
+    target = config_path or find_claude_code_config()
+    if not target.exists():
+        return None
+    try:
+        config = json.loads(target.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    servers = config.get("mcpServers", {})
+    if _SERVER_NAME not in servers:
+        return None
+
+    _backup(target)
+    del servers[_SERVER_NAME]
+    target.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    return target
+
+
+def mcp_is_configured_claude_code(*, config_path: Path | None = None) -> bool:
+    """Return True if the MCP entry exists in Claude Code CLI's config."""
+    target = config_path or find_claude_code_config()
     if not target.exists():
         return False
     try:
@@ -121,7 +203,7 @@ def configure_mcp_codex(
 
     if exe_path and exe_path.exists():
         command = str(exe_path)
-        args = ["mcp", "--kb-root", str(kb_root)]
+        args = ["--kb-root", str(kb_root), "mcp"]
     else:
         command = "uv"
         args = ["run", "python", "-m", "kb_mcp", "--kb-root", str(kb_root)]

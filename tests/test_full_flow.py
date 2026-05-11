@@ -153,29 +153,41 @@ class HookInstallFlowTest(unittest.TestCase):
 class McpSetupFlowTest(unittest.TestCase):
     """setup-mcp CLI configures Claude and Codex correctly."""
 
+    def _mcp_args(self, tmp: str, claude_cfg, claude_code_cfg, codex_cfg) -> list:
+        return [
+            "--claude-config",      str(claude_cfg),
+            "--claude-code-config", str(claude_code_cfg),
+            "--codex-config",       str(codex_cfg),
+        ]
+
     def test_setup_mcp_both_clients_via_cli(self):
         """Simulate: LLMKnowledgeBase setup-mcp --client both --kb-root ..."""
         from kb_app.__main__ import main
 
         with tempfile.TemporaryDirectory() as tmp:
-            kb_root = Path(tmp) / "kb"
+            kb_root         = Path(tmp) / "kb"
             kb_root.mkdir()
-            claude_cfg = Path(tmp) / "claude_desktop_config.json"
-            codex_cfg  = Path(tmp) / "codex_config.toml"
+            claude_cfg      = Path(tmp) / "claude_desktop_config.json"
+            claude_code_cfg = Path(tmp) / "claude.json"
+            codex_cfg       = Path(tmp) / "codex_config.toml"
 
             rc = main([
                 "--kb-root", str(kb_root),
-                "setup-mcp",
-                "--client", "both",
-                "--claude-config", str(claude_cfg),
-                "--codex-config",  str(codex_cfg),
+                "setup-mcp", "--client", "both",
+                *self._mcp_args(tmp, claude_cfg, claude_code_cfg, codex_cfg),
             ])
             self.assertEqual(rc, 0)
 
-            # Claude JSON
+            # Claude Desktop JSON
             self.assertTrue(claude_cfg.exists())
             cfg = json.loads(claude_cfg.read_text())
             self.assertIn("llm-knowledge-base", cfg["mcpServers"])
+
+            # Claude Code CLI JSON
+            self.assertTrue(claude_code_cfg.exists())
+            cli_cfg = json.loads(claude_code_cfg.read_text())
+            self.assertIn("llm-knowledge-base", cli_cfg["mcpServers"])
+            self.assertEqual(cli_cfg["mcpServers"]["llm-knowledge-base"]["type"], "stdio")
 
             # Codex TOML
             self.assertTrue(codex_cfg.exists())
@@ -185,56 +197,42 @@ class McpSetupFlowTest(unittest.TestCase):
         from kb_app.__main__ import main
 
         with tempfile.TemporaryDirectory() as tmp:
-            kb_root = Path(tmp) / "kb"
+            kb_root         = Path(tmp) / "kb"
             kb_root.mkdir()
-            claude_cfg = Path(tmp) / "claude_desktop_config.json"
-            codex_cfg  = Path(tmp) / "codex_config.toml"
+            claude_cfg      = Path(tmp) / "claude_desktop_config.json"
+            claude_code_cfg = Path(tmp) / "claude.json"
+            codex_cfg       = Path(tmp) / "codex_config.toml"
+            extra = self._mcp_args(tmp, claude_cfg, claude_code_cfg, codex_cfg)
 
-            # Configure both
-            main([
-                "--kb-root", str(kb_root),
-                "setup-mcp",
-                "--client", "both",
-                "--claude-config", str(claude_cfg),
-                "--codex-config",  str(codex_cfg),
-            ])
+            main(["--kb-root", str(kb_root), "setup-mcp", "--client", "both", *extra])
 
-            # Check status (just verify it runs without error)
             rc = main([
                 "--kb-root", str(kb_root),
-                "setup-mcp",
-                "--status",
-                "--client", "both",
-                "--claude-config", str(claude_cfg),
-                "--codex-config",  str(codex_cfg),
+                "setup-mcp", "--status", "--client", "both", *extra,
             ])
             self.assertEqual(rc, 0)
 
     def test_setup_mcp_remove_both_clients(self):
         from kb_app.__main__ import main
-        from kb_app.core.mcp_setup import mcp_is_configured, mcp_is_configured_codex
+        from kb_app.core.mcp_setup import (
+            mcp_is_configured,
+            mcp_is_configured_claude_code,
+            mcp_is_configured_codex,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
-            kb_root = Path(tmp) / "kb"
+            kb_root         = Path(tmp) / "kb"
             kb_root.mkdir()
-            claude_cfg = Path(tmp) / "claude_desktop_config.json"
-            codex_cfg  = Path(tmp) / "codex_config.toml"
+            claude_cfg      = Path(tmp) / "claude_desktop_config.json"
+            claude_code_cfg = Path(tmp) / "claude.json"
+            codex_cfg       = Path(tmp) / "codex_config.toml"
+            extra = self._mcp_args(tmp, claude_cfg, claude_code_cfg, codex_cfg)
 
-            main([
-                "--kb-root", str(kb_root),
-                "setup-mcp", "--client", "both",
-                "--claude-config", str(claude_cfg),
-                "--codex-config",  str(codex_cfg),
-            ])
-
-            main([
-                "--kb-root", str(kb_root),
-                "setup-mcp", "--remove", "--client", "both",
-                "--claude-config", str(claude_cfg),
-                "--codex-config",  str(codex_cfg),
-            ])
+            main(["--kb-root", str(kb_root), "setup-mcp", "--client", "both", *extra])
+            main(["--kb-root", str(kb_root), "setup-mcp", "--remove", "--client", "both", *extra])
 
             self.assertFalse(mcp_is_configured(config_path=claude_cfg))
+            self.assertFalse(mcp_is_configured_claude_code(config_path=claude_code_cfg))
             self.assertFalse(mcp_is_configured_codex(config_path=codex_cfg))
 
 

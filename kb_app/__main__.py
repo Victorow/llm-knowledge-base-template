@@ -9,12 +9,16 @@ from pathlib import Path
 
 from kb_app.core.mcp_setup import (
     configure_mcp,
+    configure_mcp_claude_code,
     configure_mcp_codex,
+    find_claude_code_config,
     find_claude_config,
     find_codex_config,
     mcp_is_configured,
+    mcp_is_configured_claude_code,
     mcp_is_configured_codex,
     remove_mcp,
+    remove_mcp_claude_code,
     remove_mcp_codex,
 )
 from kb_app.core.operations import compile_logs, run_lint, run_query
@@ -119,7 +123,12 @@ def main(argv: list[str] | None = None) -> int:
     setup_mcp_parser.add_argument(
         "--claude-config",
         default=None,
-        help="Override the Claude config file path",
+        help="Override the Claude Desktop config file path (claude_desktop_config.json)",
+    )
+    setup_mcp_parser.add_argument(
+        "--claude-code-config",
+        default=None,
+        help="Override the Claude Code CLI config file path (~/.claude.json)",
     )
     setup_mcp_parser.add_argument(
         "--codex-config",
@@ -232,19 +241,23 @@ def _handle_profiles(args: argparse.Namespace, db_path: Path) -> int:
 
 def _handle_setup_mcp(args: argparse.Namespace, kb_root: Path) -> int:
     client: str = args.client
-    claude_config = Path(args.claude_config) if args.claude_config else None
-    codex_config = Path(args.codex_config) if args.codex_config else None
+    claude_config      = Path(args.claude_config)      if args.claude_config      else None
+    claude_code_config = Path(args.claude_code_config) if args.claude_code_config else None
+    codex_config       = Path(args.codex_config)       if args.codex_config       else None
     do_claude = client in ("claude", "both")
-    do_codex = client in ("codex", "both")
+    do_codex  = client in ("codex", "both")
 
     if args.status:
         if do_claude:
-            configured = mcp_is_configured(config_path=claude_config)
-            print(f"Claude config : {claude_config or find_claude_config()}")
+            configured     = mcp_is_configured(config_path=claude_config)
+            configured_cli = mcp_is_configured_claude_code(config_path=claude_code_config)
+            print(f"Claude Desktop config : {claude_config or find_claude_config()}")
             print(f"  MCP configured: {'yes' if configured else 'no'}")
+            print(f"Claude Code CLI config: {claude_code_config or find_claude_code_config()}")
+            print(f"  MCP configured: {'yes' if configured_cli else 'no'}")
         if do_codex:
             configured_codex = mcp_is_configured_codex(config_path=codex_config)
-            print(f"Codex config  : {codex_config or find_codex_config()}")
+            print(f"Codex config          : {codex_config or find_codex_config()}")
             print(f"  MCP configured: {'yes' if configured_codex else 'no'}")
         return 0
 
@@ -253,15 +266,21 @@ def _handle_setup_mcp(args: argparse.Namespace, kb_root: Path) -> int:
     if args.remove:
         if do_claude:
             result = remove_mcp(config_path=claude_config)
-            print(f"Claude MCP removed from: {result}" if result else "Claude MCP entry not found.")
+            print(f"Claude Desktop MCP removed from: {result}" if result else "Claude Desktop MCP entry not found.")
+            result_cli = remove_mcp_claude_code(config_path=claude_code_config)
+            print(f"Claude Code CLI MCP removed from: {result_cli}" if result_cli else "Claude Code CLI MCP entry not found.")
         if do_codex:
             result_codex = remove_mcp_codex(config_path=codex_config)
             print(f"Codex MCP removed from: {result_codex}" if result_codex else "Codex MCP entry not found.")
         return 0
 
     if do_claude:
+        # Configure both Claude Desktop (claude_desktop_config.json) and
+        # Claude Code CLI (~/.claude.json) — they are different apps/files.
         config_path = configure_mcp(kb_root, exe_path=exe_path, config_path=claude_config)
-        print(f"Claude MCP configured in: {config_path}")
+        print(f"Claude Desktop MCP configured in: {config_path}")
+        config_path_cli = configure_mcp_claude_code(kb_root, exe_path=exe_path, config_path=claude_code_config)
+        print(f"Claude Code CLI MCP configured in: {config_path_cli}")
     if do_codex:
         config_path_codex = configure_mcp_codex(kb_root, exe_path=exe_path, config_path=codex_config)
         print(f"Codex MCP configured in : {config_path_codex}")

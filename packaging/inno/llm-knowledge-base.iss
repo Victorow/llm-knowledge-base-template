@@ -35,16 +35,16 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "ui"; \
   Description: "Abrir {#MyAppName} agora"; \
   Flags: nowait postinstall skipifsilent
 
-; Configura o MCP no Claude Code
+; Configura o MCP no Claude Code (Desktop + CLI)
 Filename: "{app}\{#MyAppExeName}"; \
-  Parameters: "setup-mcp --client claude --exe-path ""{app}\{#MyAppExeName}"" --kb-root ""{code:GetKbRoot}"""; \
+  Parameters: """--kb-root"" ""{code:GetKbRoot}"" setup-mcp --client claude --exe-path ""{app}\{#MyAppExeName}"""; \
   Tasks: configure_mcp; \
   Description: "Configurar integração com Claude Code"; \
   Flags: runhidden
 
 ; Configura o MCP no Codex
 Filename: "{app}\{#MyAppExeName}"; \
-  Parameters: "setup-mcp --client codex --exe-path ""{app}\{#MyAppExeName}"" --kb-root ""{code:GetKbRoot}"""; \
+  Parameters: """--kb-root"" ""{code:GetKbRoot}"" setup-mcp --client codex --exe-path ""{app}\{#MyAppExeName}"""; \
   Tasks: configure_mcp_codex; \
   Description: "Configurar integração com Codex"; \
   Flags: runhidden

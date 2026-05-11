@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from kb_app.core.config_merge import KB_HOOK_MARKER
-from kb_app.core.mcp_setup import find_claude_config, find_codex_config, mcp_is_configured, mcp_is_configured_codex
+from kb_app.core.mcp_setup import (
+    find_claude_code_config,
+    find_claude_config,
+    find_codex_config,
+    mcp_is_configured,
+    mcp_is_configured_claude_code,
+    mcp_is_configured_codex,
+)
 from kb_app.core.paths import resolve_app_paths, resolve_kb_paths
 from kb_app.diagnostics.export import export_diagnostics
 from kb_app.jobs.queue import JobStore
@@ -451,7 +458,8 @@ class ControlPanelWindow:
             label = "Claude Code" if client == "claude" else "Codex"
             lbl.setText(f"{icon}  Hooks {label}: {'instalados' if icon == ok else 'não instalados'}")
 
-        claude_mcp = mcp_is_configured()
+        # MCP is considered configured if either Claude Desktop or Claude Code CLI has it
+        claude_mcp = mcp_is_configured() or mcp_is_configured_claude_code()
         codex_mcp  = mcp_is_configured_codex()
         self._tut_claude_mcp_lbl.setText(
             f"{ok if claude_mcp else err}  MCP Claude Code: {'configurado' if claude_mcp else 'não configurado'}"
