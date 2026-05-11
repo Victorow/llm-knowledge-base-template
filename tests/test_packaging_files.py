@@ -45,6 +45,7 @@ class PackagingFilesTests(unittest.TestCase):
 
         self.assertIn("AGENTS.md", spec)
         self.assertIn("CONTEXT.md", spec)
+        self.assertNotIn('"fastmcp"', spec)
         self.assertIn(".install-config", inno)
         self.assertIn("AGENTS.md", inno)
         self.assertIn("index.md", inno)

@@ -140,7 +140,7 @@ begin
     if not FileExists(KbRoot + '\AGENTS.md') then
     begin
       if FileExists(InternalDir + '\AGENTS.md') then
-        FileCopy(InternalDir + '\AGENTS.md', KbRoot + '\AGENTS.md', False)
+        CopyFile(InternalDir + '\AGENTS.md', KbRoot + '\AGENTS.md', False)
       else
         SaveStringToFile(KbRoot + '\AGENTS.md',
           '# Personal Knowledge Base Schema' + #13#10 + #13#10 +
@@ -151,7 +151,7 @@ begin
     if not FileExists(KbRoot + '\CONTEXT.md') then
     begin
       if FileExists(InternalDir + '\CONTEXT.md') then
-        FileCopy(InternalDir + '\CONTEXT.md', KbRoot + '\CONTEXT.md', False)
+        CopyFile(InternalDir + '\CONTEXT.md', KbRoot + '\CONTEXT.md', False)
       else
         SaveStringToFile(KbRoot + '\CONTEXT.md',
           '# Context' + #13#10 + #13#10 +
