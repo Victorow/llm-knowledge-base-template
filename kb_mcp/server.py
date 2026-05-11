@@ -63,7 +63,7 @@ def kb_get_context() -> str:
 
 
 @mcp.tool()
-def kb_query(question: str, file_back: bool = False) -> str:
+async def kb_query(question: str, file_back: bool = False) -> str:
     """Query the knowledge base with a natural language question.
 
     The LLM backend reads all wiki articles and answers using that knowledge.
@@ -73,12 +73,13 @@ def kb_query(question: str, file_back: bool = False) -> str:
         question: The question to ask the knowledge base.
         file_back: If True, saves the answer as a Q&A article in kb/knowledge/qa/.
     """
+    import asyncio as _asyncio
     paths = _paths()
-    return run_query(paths, question, file_back=file_back)
+    return await _asyncio.to_thread(run_query, paths, question, file_back=file_back)
 
 
 @mcp.tool()
-def kb_compile(
+async def kb_compile(
     force_all: bool = False,
     file_name: str | None = None,
     dry_run: bool = False,
@@ -96,12 +97,13 @@ def kb_compile(
     Returns:
         Summary of compiled files and total cost in USD.
     """
+    import asyncio as _asyncio
     paths = _paths()
-    result = compile_logs(paths, force_all=force_all, file_name=file_name, dry_run=dry_run)
-
+    result = await _asyncio.to_thread(
+        compile_logs, paths, force_all=force_all, file_name=file_name, dry_run=dry_run
+    )
     if not result.files:
         return "Nothing to compile — all daily logs are up to date."
-
     prefix = "[DRY RUN] " if result.dry_run else ""
     lines = [f"{prefix}Files compiled ({len(result.files)}):"]
     for name in result.files:
@@ -112,7 +114,7 @@ def kb_compile(
 
 
 @mcp.tool()
-def kb_lint(structural_only: bool = False) -> str:
+async def kb_lint(structural_only: bool = False) -> str:
     """Run health checks on the knowledge base.
 
     Structural checks are free (no LLM). Full lint also uses the LLM to detect
@@ -124,12 +126,12 @@ def kb_lint(structural_only: bool = False) -> str:
     Returns:
         Lint report with errors, warnings, and suggestions.
     """
+    import asyncio as _asyncio
     paths = _paths()
     if structural_only:
-        result = run_structural_lint(paths, write_report=True)
+        result = await _asyncio.to_thread(run_structural_lint, paths, write_report=True)
     else:
-        result = run_lint(paths, structural_only=False, write_report=True)
-
+        result = await _asyncio.to_thread(run_lint, paths, structural_only=False, write_report=True)
     summary = (
         f"Results: {result.errors} errors, "
         f"{result.warnings} warnings, {result.suggestions} suggestions"
@@ -260,6 +262,57 @@ def kb_diagnostics(output_dir: str | None = None) -> str:
     out = Path(output_dir) if output_dir else None
     bundle = export_diagnostics(app_paths, paths, output_dir=out)
     return f"Diagnostics exported: {bundle}"
+
+
+@mcp.tool()
+def kb_status() -> str:
+    """Return the current status of the knowledge base.
+
+    Shows: KB root, daily log count, article count, last compile timestamp,
+    query count, and total API cost spent so far.
+    """
+    from kb_app.core.wiki import load_state, list_raw_files, list_wiki_articles
+    paths = _paths()
+    state = load_state(paths)
+
+    daily_count   = len(list_raw_files(paths))
+    article_count = len(list_wiki_articles(paths))
+    ingested      = state.get("ingested", {})
+    compiled      = len(ingested)
+
+    last_compile = "never"
+    if ingested:
+        latest = max(v.get("compiled_at", "") for v in ingested.values() if v.get("compiled_at"))
+        if latest:
+            last_compile = latest
+
+    lines = [
+        f"KB root       : {_kb_root}",
+        f"Daily logs    : {daily_count} files ({compiled} compiled, {daily_count - compiled} pending)",
+        f"Wiki articles : {article_count}",
+        f"Last compile  : {last_compile}",
+        f"Query count   : {state.get('query_count', 0)}",
+        f"Total API cost: ${state.get('total_cost', 0.0):.4f}",
+    ]
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def kb_pending_logs() -> str:
+    """List daily logs that have not been compiled yet (or changed since last compile).
+
+    Use this before calling kb_compile to understand what will be processed.
+    """
+    from kb_app.core.wiki import load_state, list_raw_files, file_hash
+    from kb_app.core.operations import select_logs_to_compile
+    paths = _paths()
+    pending = select_logs_to_compile(paths, force_all=False)
+    if not pending:
+        return "All daily logs are up to date. Nothing to compile."
+    lines = [f"Pending logs ({len(pending)} files):"]
+    for p in pending:
+        lines.append(f"  - {p.name}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

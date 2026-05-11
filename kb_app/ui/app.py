@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -155,6 +156,8 @@ class ControlPanelWindow:
         self.window.setWindowTitle("LLM Knowledge Base")
         self.window.resize(1100, 720)
         self._build()
+
+        self._job_running = False
 
         # Process one queued job every 2 seconds
         self._job_timer = QtCore.QTimer()
@@ -616,29 +619,74 @@ class ControlPanelWindow:
         self.enqueue_action(action, {"client": client})
 
     def _tick(self) -> None:
-        """Called every 2 s by QTimer — runs one pending job and refreshes UI."""
+        if self._job_running:
+            return
+        # Peek at queue to show meaningful status without blocking
         try:
-            result = self.runner.run_next()
-            if result.status == "succeeded":
-                self.bottom_bar.setText("✅  Job concluído com sucesso.")
-                self.refresh_jobs()
-                self.refresh_tutorial()
-                self.refresh_dashboard()
-            elif result.status == "failed":
-                try:
-                    job = self.job_store.get_job(result.job_id)
-                    err = job.error_message or "erro desconhecido"
-                except Exception:
-                    err = "erro desconhecido"
-                self.bottom_bar.setText(f"❌  Job falhou: {err}")
-                self.refresh_jobs()
-                self.refresh_tutorial()
-            elif result.status == "cancelled":
-                self.bottom_bar.setText("⚠️  Job cancelado.")
-                self.refresh_jobs()
-        except Exception as exc:
-            self.bottom_bar.setText(f"❌  Erro no runner: {exc}")
+            conn = self.job_store._connection()
+            with conn:
+                row = conn.execute(
+                    "SELECT job_type FROM jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
+                ).fetchone()
+        except Exception:
+            row = None
+
+        if row is None:
+            return  # nothing pending, skip thread allocation
+
+        status_msg = {
+            "compile_changed": "⏳  Compilando logs alterados...",
+            "compile_all":     "⏳  Compilando todos os logs...",
+            "compile_file":    "⏳  Compilando arquivo...",
+            "query":           "⏳  Consultando base de conhecimento...",
+            "query_file_back": "⏳  Consultando e salvando resposta...",
+            "install_hooks":   "⏳  Instalando hooks...",
+            "remove_hooks":    "⏳  Removendo hooks...",
+            "lint_structural": "⏳  Verificando estrutura...",
+            "lint_full":       "⏳  Verificando KB completo...",
+        }.get(row["job_type"] if row else "", "⏳  Processando job...")
+        self.bottom_bar.setText(status_msg)
+
+        self._job_running = True
+        QtCore = self.QtCore
+
+        def worker():
+            result = None
+            error = None
+            try:
+                result = self.runner.run_next()
+            except Exception as exc:
+                error = exc
+            finally:
+                self._job_running = False
+            QtCore.QTimer.singleShot(0, lambda: self._on_job_done(result, error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_job_done(self, result, error) -> None:
+        """Called on the main Qt thread when a background job completes."""
+        if error is not None:
+            self.bottom_bar.setText(f"❌  Erro no runner: {error}")
             self.refresh_jobs()
+            return
+        if result.status == "succeeded":
+            self.bottom_bar.setText("✅  Job concluído com sucesso.")
+            self.refresh_jobs()
+            self.refresh_tutorial()
+            self.refresh_dashboard()
+        elif result.status == "failed":
+            try:
+                job = self.job_store.get_job(result.job_id)
+                err = job.error_message or "erro desconhecido"
+            except Exception:
+                err = "erro desconhecido"
+            self.bottom_bar.setText(f"❌  Job falhou: {err}")
+            self.refresh_jobs()
+            self.refresh_tutorial()
+        elif result.status == "cancelled":
+            self.bottom_bar.setText("⚠️  Job cancelado.")
+            self.refresh_jobs()
+        # idle: leave status bar unchanged
 
     def _daily_controls(self, layout):
         QtWidgets = self.QtWidgets
