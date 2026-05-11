@@ -84,6 +84,14 @@ _Avoid_: capture hook, compiler, AI client
 The user-session desktop process that exposes the **Control Panel UI**, system tray controls, and lifecycle management for the **Background Agent**.
 _Avoid_: system service, daemon
 
+**Packaged Entrypoint**:
+The installed executable command surface used for UI, background jobs, hooks, diagnostics, and CLI operations.
+_Avoid_: script path, Python source file
+
+**Diagnostics Bundle**:
+A redacted support archive containing environment, config, logs, job metadata, and smoke-test information without raw secrets or private KB content by default.
+_Avoid_: full backup, transcript export
+
 ## Relationships
 
 - An **AI Client** emits one or more **Conversation Transcripts**.
@@ -102,6 +110,8 @@ _Avoid_: system service, daemon
 - The installed **KB Desktop App** writes to **App Data** and user-selected **KB Data**, never to its packaged executable directory.
 - The **Control Panel UI** can manage multiple **KB Profiles**.
 - Exactly one **Active KB Profile** is used for **Capture Hooks** and automatic capture at a time.
+- The **Packaged Entrypoint** is the stable command target for installed hooks and packaging smoke tests.
+- A **Diagnostics Bundle** is generated from **App Data** and metadata about **KB Data**, not from full private transcripts or compiled articles by default.
 
 ## Example Dialogue
 
@@ -129,6 +139,12 @@ _Avoid_: system service, daemon
 > **Dev:** "Can hooks capture into several KBs at once?"
 > **Domain expert:** "Not in V1. Users can manage multiple **KB Profiles**, but **Capture Hooks** target one **Active KB Profile**."
 
+> **Dev:** "Can the installer configure hooks automatically?"
+> **Domain expert:** "No. The installer only places the app. Hook config is a reversible setup action through the app flow, with backup and rollback."
+
+> **Dev:** "Can diagnostics include my entire KB?"
+> **Domain expert:** "Not by default. A **Diagnostics Bundle** redacts secrets and excludes full **Daily Logs**, **Conversation Transcripts**, and **Knowledge Articles** unless a future explicit export mode says otherwise."
+
 ## Flagged Ambiguities
 
 - "Codex support" can mean transcript capture from the Codex client, LLM execution through Codex CLI, or both. Resolved: support includes both surfaces through **AI Client** parsing and selectable **Agent Backend** execution.
@@ -141,3 +157,5 @@ _Avoid_: system service, daemon
 - "Project folder" can mean install directory, **KB Data**, or **App Data**. Resolved: these are separate locations with different ownership and permissions.
 - "Cloud sync" does not exist in the current project and is out of scope for the first **KB Desktop App** version. Users may place **KB Data** in an external synced folder, but the app does not manage cloud login, merge conflicts, encryption, or remote storage.
 - "Multiple KBs" means multiple **KB Profiles** in the app, not simultaneous multi-destination capture. Resolved: one **Active KB Profile** at a time for hooks and automation.
+- "Packaged app" means one **Packaged Entrypoint** with subcommands, not separate scripts that require `uv` at runtime.
+- "Diagnostics" means a redacted **Diagnostics Bundle**, not an unrestricted archive of user knowledge.

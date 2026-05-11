@@ -16,6 +16,7 @@ You work normally. Hooks capture sessions, a flush step writes structured daily 
 |---------|--------|--------------|
 | Claude Code | Supported | `SessionStart`, `SessionEnd`, and `PreCompact` hooks |
 | Codex | Supported | `SessionStart` and `Stop` hooks with `features.codex_hooks = true` |
+| Desktop Control Panel | Supported | PySide6 UI, job queue, diagnostics, packaged hook entrypoint |
 | macOS/Linux automation | Supported | `scripts/compile-daily.sh` with launchd or systemd |
 | Windows automation | Supported | `scripts/compile-daily.ps1` with Task Scheduler |
 
@@ -28,6 +29,7 @@ The transcript parser is provider-neutral: Claude Code JSONL and Codex rollout J
 | `hooks/session-start.py` | Injects KB index + recent daily log into Claude Code or Codex sessions |
 | `hooks/session-end.py` | Captures a transcript and spawns `flush.py`; used by Claude `SessionEnd` and Codex `Stop` |
 | `hooks/pre-compact.py` | Claude Code safety hook before compaction |
+| `kb_app/` | Importable core package, job queue, hook commands, diagnostics, and UI |
 | `scripts/transcripts.py` | Normalizes Claude Code and Codex JSONL transcripts |
 | `scripts/agent_backend.py` | Selects Claude Agent SDK or Codex CLI for LLM execution |
 | `scripts/flush.py` | Summarizes captured context into `kb/daily/YYYY-MM-DD.md` |
@@ -37,6 +39,10 @@ The transcript parser is provider-neutral: Claude Code JSONL and Codex rollout J
 | `scripts/compile-daily.sh` | macOS/Linux daily compile wrapper |
 | `scripts/compile-daily.ps1` | Windows daily compile wrapper |
 | `scripts/register-windows-task.ps1` | Registers the Windows scheduled task |
+| `scripts/build-windows.ps1` | Builds PyInstaller app and optional Inno Setup installer |
+| `scripts/build-linux.sh` | Builds the Linux PyInstaller app directory |
+| `scripts/smoke-packaged.py` | Verifies packaged/module entrypoints |
+| `packaging/` | PyInstaller, Inno Setup, and Linux desktop installer files |
 | `.claude/*.example.json` | Claude Code hook templates |
 | `.codex/*.example.*` | Codex hook/config templates |
 | `CONTEXT.md` | Project language and boundaries |
@@ -63,6 +69,34 @@ On Windows PowerShell:
 ```powershell
 uv sync
 ```
+
+## Desktop Control Panel
+
+The desktop app is a control panel over the existing KB pipeline. It does not replace Claude Code or Codex, and it does not bundle either client. It exposes profiles, hook setup, daily logs, knowledge browsing, compile/query/lint operations, job history, scheduler settings, and diagnostics through a local PySide6 UI.
+
+Run from source:
+
+```bash
+uv run python -m kb_app ui
+```
+
+Run command-mode operations through the same entrypoint:
+
+```bash
+uv run python -m kb_app --help
+uv run python -m kb_app compile --dry-run
+uv run python -m kb_app lint --structural-only
+uv run python -m kb_app diagnostics export --output reports
+uv run python -m kb_app hook session-start
+```
+
+The app separates:
+
+- install directory: packaged executable and libraries
+- app data: SQLite DB, UI config, job history, logs, diagnostics
+- KB data: `AGENTS.md`, `CONTEXT.md`, `kb/daily`, `kb/knowledge`
+
+Cloud sync is not implemented in V1. You can put KB data inside an externally synced folder, but the app does not manage cloud login, encryption, conflict resolution, or remote storage.
 
 ## Agent Backend
 
@@ -265,6 +299,27 @@ uv run python scripts\compile.py --dry-run
 uv run python scripts\query.py "How should I handle auth redirects?"
 uv run python scripts\lint.py --structural-only
 ```
+
+## Packaging
+
+Windows build:
+
+```powershell
+uv run pyinstaller packaging\pyinstaller\llm-knowledge-base.spec --noconfirm --clean
+uv run python scripts\smoke-packaged.py --exe dist\LLMKnowledgeBase\LLMKnowledgeBase.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build-windows.ps1
+```
+
+`scripts/build-windows.ps1` uses Inno Setup when `ISCC.exe` is available. The installer is user-level (`%LOCALAPPDATA%\Programs\LLM Knowledge Base`) and does not modify Claude/Codex hooks during install; hook setup belongs to the app wizard/config flow.
+
+Linux build:
+
+```bash
+sh scripts/build-linux.sh
+sh packaging/linux/install.sh dist/LLMKnowledgeBase
+```
+
+The Linux installer writes to user directories (`~/Applications`, `~/.local/bin`, `~/.local/share/applications`) and does not require `sudo`.
 
 ## Daily Workflow
 

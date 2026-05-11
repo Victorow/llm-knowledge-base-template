@@ -302,6 +302,15 @@ llm-personal-kb/
 |-- CONTEXT.md                       # Project vocabulary and boundaries
 |-- README.md                        # Concise overview + quick start
 |-- pyproject.toml                   # Dependencies (at root so hooks can find it)
+|-- kb_app/                          # Importable app/core package
+|   |-- __main__.py                  # Single CLI/packaged executable entrypoint
+|   |-- core/                        # Paths, wiki helpers, operations, backend, config merge
+|   |-- profiles/                    # SQLite KB profile and app setting store
+|   |-- jobs/                        # Durable job queue and runner
+|   |-- agent/                       # Background agent and scheduler
+|   |-- hooks/                       # Provider-neutral hook command implementations
+|   |-- diagnostics/                 # Redaction and support bundle export
+|   |-- ui/                          # PySide6 control panel and tray integration
 |-- kb/
 |   |-- daily/                       #   "Source code" - conversation logs (immutable)
 |   |-- knowledge/                   #   "Executable" - compiled knowledge (LLM-owned)
@@ -326,6 +335,10 @@ llm-personal-kb/
 |   |-- session-start.py             #   Injects knowledge into every session
 |   |-- session-end.py               #   Extracts conversation -> daily log
 |   |-- pre-compact.py               #   Safety net: captures context before compaction
+|-- packaging/                       # Desktop packaging
+|   |-- pyinstaller/                 #   PyInstaller spec
+|   |-- inno/                        #   Windows Inno Setup installer
+|   |-- linux/                       #   Linux user-level installer and desktop entry
 |-- docs/adr/                        # Architecture decision records
 |-- reports/                         # Lint reports (gitignored)
 ```
@@ -340,6 +353,24 @@ Hooks are configured per AI client:
 - Codex: enable `features.codex_hooks = true` and copy `.codex/hooks.example.json` or `.codex/hooks.windows.example.json` to `.codex/hooks.json` or `~/.codex/hooks.json`.
 
 Codex project-local hooks load only when the project `.codex/` layer is trusted.
+
+Source-tree hook wrappers call `kb_app.hooks.commands`. Packaged installs should call the executable entrypoint instead:
+
+```bash
+llm-knowledge-base hook session-start
+llm-knowledge-base hook session-end
+llm-knowledge-base hook pre-compact
+```
+
+Windows packaged form:
+
+```powershell
+LLMKnowledgeBase.exe hook session-start
+LLMKnowledgeBase.exe hook session-end
+LLMKnowledgeBase.exe hook pre-compact
+```
+
+The installer itself must not modify Claude/Codex configs. Hook install/repair belongs to the app setup flow and must use structured merge with backup/rollback.
 
 ### `.claude/settings.json` Format
 
