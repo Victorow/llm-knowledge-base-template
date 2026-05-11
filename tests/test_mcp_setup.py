@@ -173,6 +173,25 @@ class CodexMcpTests(unittest.TestCase):
         # Should appear only once
         self.assertEqual(text.count("[mcp_servers.llm-knowledge-base]"), 1)
 
+    def test_repeated_configure_leaves_no_args_fragment(self):
+        """Running configure twice must not leave orphaned args=[...] lines.
+
+        The old regex stopped at the first '[' inside the section body,
+        which meant the 'args = [...]' line was split and its tail
+        '["--kb-root", ...]' was left behind as invalid TOML.
+        """
+        configure_mcp_codex(self.kb_root, config_path=self.config_path)
+        configure_mcp_codex(self.kb_root, config_path=self.config_path)
+        configure_mcp_codex(self.kb_root, config_path=self.config_path)
+        text = self.config_path.read_text()
+        # The section must appear exactly once
+        self.assertEqual(text.count("[mcp_servers.llm-knowledge-base]"), 1)
+        # No orphaned array fragments starting a line
+        self.assertNotIn('["--kb-root"', text)
+        self.assertNotIn('["mcp"', text)
+        # The args value must still be present and correct
+        self.assertIn('args = [', text)
+
     def test_windows_backslashes_escaped(self):
         """Paths with backslashes must be TOML-escaped."""
         win_root = Path("C:\\Users\\Test\\kb")

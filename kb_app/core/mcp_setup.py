@@ -267,20 +267,21 @@ def _has_toml_mcp_section(text: str) -> bool:
 def _remove_toml_mcp_section(text: str) -> str:
     """Remove the [mcp_servers.llm-knowledge-base] block from TOML text.
 
+    Stops at the next section header (line starting with '['), so inline
+    arrays in values like `args = [...]` are not confused with section starts.
+
     Also removes invalid array-style headers left by older buggy installs,
-    e.g. lines like:  ["mcp", "--kb-root", "..."]
+    e.g.:  ["mcp", "--kb-root", "..."]  or  ["--kb-root", "...", "mcp"]
     """
-    # Remove valid [mcp_servers.llm-knowledge-base] section (block until next header)
+    # Remove the section: header + all following lines that don't start a new section
     text = re.sub(
-        rf'\[mcp_servers\.{re.escape(_SERVER_NAME)}\][^\[]*',
+        rf'(?m)^\[mcp_servers\.{re.escape(_SERVER_NAME)}\][ \t]*\n'
+        rf'(?:(?!\[).*\n?)*',
         '',
         text,
-        flags=re.DOTALL,
     )
-    # Remove leftover invalid TOML lines from old buggy writes, e.g.:
-    #   ["mcp", "--kb-root", "..."]
-    #   ["--kb-root", "...", "mcp"]
-    text = re.sub(r'(?m)^\[\"(?:mcp|--kb-root)[^\]]*\]\s*\n?', '', text)
+    # Remove leftover invalid TOML lines from old buggy writes
+    text = re.sub(r'(?m)^\["(?:mcp|--kb-root)[^\]]*\][ \t]*\n?', '', text)
     return text
 
 
