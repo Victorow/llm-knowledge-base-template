@@ -7,7 +7,16 @@ import json
 import sys
 from pathlib import Path
 
-from kb_app.core.mcp_setup import configure_mcp, find_claude_config, mcp_is_configured, remove_mcp
+from kb_app.core.mcp_setup import (
+    configure_mcp,
+    configure_mcp_codex,
+    find_claude_config,
+    find_codex_config,
+    mcp_is_configured,
+    mcp_is_configured_codex,
+    remove_mcp,
+    remove_mcp_codex,
+)
 from kb_app.core.operations import compile_logs, run_lint, run_query
 from kb_app.core.paths import resolve_app_paths
 from kb_app.core.paths import resolve_kb_paths
@@ -94,7 +103,13 @@ def main(argv: list[str] | None = None) -> int:
 
     setup_mcp_parser = subparsers.add_parser(
         "setup-mcp",
-        help="Configure MCP server in Claude Code's config file",
+        help="Configure MCP server in Claude Code and/or Codex config files",
+    )
+    setup_mcp_parser.add_argument(
+        "--client",
+        choices=["claude", "codex", "both"],
+        default="both",
+        help="Which AI client to configure MCP for (default: both)",
     )
     setup_mcp_parser.add_argument(
         "--exe-path",
@@ -105,6 +120,11 @@ def main(argv: list[str] | None = None) -> int:
         "--claude-config",
         default=None,
         help="Override the Claude config file path",
+    )
+    setup_mcp_parser.add_argument(
+        "--codex-config",
+        default=None,
+        help="Override the Codex config.toml path",
     )
     setup_mcp_parser.add_argument(
         "--remove",
@@ -211,28 +231,43 @@ def _handle_profiles(args: argparse.Namespace, db_path: Path) -> int:
 
 
 def _handle_setup_mcp(args: argparse.Namespace, kb_root: Path) -> int:
+    client: str = args.client
     claude_config = Path(args.claude_config) if args.claude_config else None
+    codex_config = Path(args.codex_config) if args.codex_config else None
+    do_claude = client in ("claude", "both")
+    do_codex = client in ("codex", "both")
 
     if args.status:
-        configured = mcp_is_configured(config_path=claude_config)
-        detected = find_claude_config()
-        print(f"Claude config: {claude_config or detected}")
-        print(f"MCP configured: {'yes' if configured else 'no'}")
-        return 0
-
-    if args.remove:
-        result = remove_mcp(config_path=claude_config)
-        if result:
-            print(f"MCP entry removed from: {result}")
-        else:
-            print("MCP entry not found — nothing to remove.")
+        if do_claude:
+            configured = mcp_is_configured(config_path=claude_config)
+            print(f"Claude config : {claude_config or find_claude_config()}")
+            print(f"  MCP configured: {'yes' if configured else 'no'}")
+        if do_codex:
+            configured_codex = mcp_is_configured_codex(config_path=codex_config)
+            print(f"Codex config  : {codex_config or find_codex_config()}")
+            print(f"  MCP configured: {'yes' if configured_codex else 'no'}")
         return 0
 
     exe_path = Path(args.exe_path) if args.exe_path else None
-    config_path = configure_mcp(kb_root, exe_path=exe_path, config_path=claude_config)
-    print(f"MCP configured in: {config_path}")
+
+    if args.remove:
+        if do_claude:
+            result = remove_mcp(config_path=claude_config)
+            print(f"Claude MCP removed from: {result}" if result else "Claude MCP entry not found.")
+        if do_codex:
+            result_codex = remove_mcp_codex(config_path=codex_config)
+            print(f"Codex MCP removed from: {result_codex}" if result_codex else "Codex MCP entry not found.")
+        return 0
+
+    if do_claude:
+        config_path = configure_mcp(kb_root, exe_path=exe_path, config_path=claude_config)
+        print(f"Claude MCP configured in: {config_path}")
+    if do_codex:
+        config_path_codex = configure_mcp_codex(kb_root, exe_path=exe_path, config_path=codex_config)
+        print(f"Codex MCP configured in : {config_path_codex}")
+
     print(f"KB root: {kb_root}")
-    print("Restart Claude Code to activate the MCP server.")
+    print("Restart Claude Code / Codex to activate the MCP server.")
     return 0
 
 

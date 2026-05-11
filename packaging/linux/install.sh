@@ -10,7 +10,9 @@
 # Options:
 #   --kb-root DIR    Where to store your KB files
 #                    (default: ~/Documents/LLM Knowledge Base, or $KB_ROOT env var)
-#   --no-mcp         Skip Claude Code MCP integration
+#   --no-mcp         Skip all MCP integration (Claude Code and Codex)
+#   --no-claude-mcp  Skip Claude Code MCP integration only
+#   --no-codex-mcp   Skip Codex MCP integration only
 #   --no-autostart   Skip adding the app to system startup
 #   --silent         Non-interactive: use defaults, do not prompt
 #
@@ -37,7 +39,8 @@ SOURCE_DIR="${1:-${PROJECT_ROOT}/dist/LLMKnowledgeBase}"
 DEFAULT_KB_ROOT="${HOME}/Documents/LLM Knowledge Base"
 KB_ROOT="${KB_ROOT:-${DEFAULT_KB_ROOT}}"
 
-SKIP_MCP=0
+SKIP_CLAUDE_MCP=0
+SKIP_CODEX_MCP=0
 SKIP_AUTOSTART=0
 SILENT=0
 
@@ -53,9 +56,11 @@ for arg in "$@"; do
     case "${arg}" in
         --kb-root=*) KB_ROOT="${arg#--kb-root=}" ;;
         --kb-root)   : ;;  # handled below — requires next arg
-        --no-mcp)    SKIP_MCP=1 ;;
-        --no-autostart) SKIP_AUTOSTART=1 ;;
-        --silent)    SILENT=1 ;;
+        --no-mcp)        SKIP_CLAUDE_MCP=1; SKIP_CODEX_MCP=1 ;;
+        --no-claude-mcp) SKIP_CLAUDE_MCP=1 ;;
+        --no-codex-mcp)  SKIP_CODEX_MCP=1 ;;
+        --no-autostart)  SKIP_AUTOSTART=1 ;;
+        --silent)        SILENT=1 ;;
     esac
 done
 
@@ -111,17 +116,35 @@ fi
 # ---------------------------------------------------------------------------
 # Ask about MCP (interactive mode only)
 # ---------------------------------------------------------------------------
-if [ "${SILENT}" = "0" ] && [ "${SKIP_MCP}" = "0" ]; then
-    echo "Connect to Claude Code automatically? (recommended)"
-    echo "(The app will add itself to Claude Code so it can read your knowledge base.)"
+if [ "${SILENT}" = "0" ] && [ "${SKIP_CLAUDE_MCP}" = "0" ]; then
+    echo "Conectar ao Claude Code via MCP? (recomendado)"
+    echo "(O app se adiciona ao Claude Code para poder ler sua base de conhecimento.)"
     echo ""
-    printf "  Configure MCP integration? [Y/n]: "
+    printf "  Configurar MCP para Claude Code? [Y/n]: "
     if [ -t 0 ]; then
         read -r mcp_input || true
         case "${mcp_input}" in
-            [nN]*) SKIP_MCP=1 ;;
+            [nN]*) SKIP_CLAUDE_MCP=1 ;;
         esac
     else
+        echo ""
+    fi
+    echo ""
+fi
+
+if [ "${SILENT}" = "0" ] && [ "${SKIP_CODEX_MCP}" = "0" ]; then
+    echo "Conectar ao Codex via MCP?"
+    echo "(O app se adiciona ao Codex para poder ler sua base de conhecimento.)"
+    echo ""
+    printf "  Configurar MCP para Codex? [y/N]: "
+    if [ -t 0 ]; then
+        read -r codex_mcp_input || true
+        case "${codex_mcp_input}" in
+            [yY]*) : ;;  # mantém SKIP_CODEX_MCP=0
+            *) SKIP_CODEX_MCP=1 ;;
+        esac
+    else
+        SKIP_CODEX_MCP=1
         echo ""
     fi
     echo ""
@@ -132,7 +155,8 @@ fi
 # ---------------------------------------------------------------------------
 echo "  Installing to : ${APP_DIR}"
 echo "  KB folder     : ${KB_ROOT}"
-echo "  Claude MCP    : $([ "${SKIP_MCP}" = "0" ] && echo "yes (auto-configure)" || echo "no")"
+echo "  Claude MCP    : $([ "${SKIP_CLAUDE_MCP}" = "0" ] && echo "yes" || echo "no")"
+echo "  Codex MCP     : $([ "${SKIP_CODEX_MCP}" = "0" ] && echo "yes" || echo "no")"
 echo "  Autostart     : $([ "${SKIP_AUTOSTART}" = "0" ] && echo "yes" || echo "no")"
 echo ""
 
@@ -206,16 +230,26 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
-# Configure MCP in Claude Code
+# Configure MCP
 # ---------------------------------------------------------------------------
-if [ "${SKIP_MCP}" = "0" ]; then
+if [ "${SKIP_CLAUDE_MCP}" = "0" ]; then
     echo "  Configuring Claude Code MCP integration..."
     "${APP_DIR}/LLMKnowledgeBase" \
-        setup-mcp \
+        setup-mcp --client claude \
         --exe-path "${APP_DIR}/LLMKnowledgeBase" \
         --kb-root "${KB_ROOT}" \
-        2>/dev/null && echo "  MCP configured." \
-        || echo "  Warning: could not configure MCP automatically. Run 'llm-knowledge-base setup-mcp --kb-root \"${KB_ROOT}\"' manually after installation."
+        2>/dev/null && echo "  Claude MCP configured." \
+        || echo "  Warning: could not configure Claude MCP. Run 'llm-knowledge-base setup-mcp --client claude --kb-root \"${KB_ROOT}\"' manually."
+fi
+
+if [ "${SKIP_CODEX_MCP}" = "0" ]; then
+    echo "  Configuring Codex MCP integration..."
+    "${APP_DIR}/LLMKnowledgeBase" \
+        setup-mcp --client codex \
+        --exe-path "${APP_DIR}/LLMKnowledgeBase" \
+        --kb-root "${KB_ROOT}" \
+        2>/dev/null && echo "  Codex MCP configured." \
+        || echo "  Warning: could not configure Codex MCP. Run 'llm-knowledge-base setup-mcp --client codex --kb-root \"${KB_ROOT}\"' manually."
 fi
 
 # ---------------------------------------------------------------------------
@@ -223,7 +257,8 @@ fi
 # ---------------------------------------------------------------------------
 cat > "${APP_DIR}/.install-config" <<EOF
 KB_ROOT=${KB_ROOT}
-SKIP_MCP=${SKIP_MCP}
+SKIP_CLAUDE_MCP=${SKIP_CLAUDE_MCP}
+SKIP_CODEX_MCP=${SKIP_CODEX_MCP}
 SKIP_AUTOSTART=${SKIP_AUTOSTART}
 EOF
 

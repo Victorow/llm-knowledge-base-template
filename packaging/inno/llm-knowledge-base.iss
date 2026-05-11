@@ -25,8 +25,9 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Paramete
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "ui"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon";    Description: "Criar atalho na área de trabalho";         GroupDescription: "Atalhos:"; Flags: unchecked
-Name: "configure_mcp";  Description: "Conectar ao Claude Code automaticamente (recomendado)"; GroupDescription: "Claude Code:"
+Name: "desktopicon";          Description: "Criar atalho na área de trabalho";                  GroupDescription: "Atalhos:"; Flags: unchecked
+Name: "configure_mcp";        Description: "Conectar ao Claude Code via MCP (recomendado)";     GroupDescription: "Integrações MCP:"
+Name: "configure_mcp_codex";  Description: "Conectar ao Codex via MCP";                         GroupDescription: "Integrações MCP:"
 
 [Run]
 ; Lança o app ao final da instalação
@@ -34,16 +35,23 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "ui"; \
   Description: "Abrir {#MyAppName} agora"; \
   Flags: nowait postinstall skipifsilent
 
-; Configura o MCP no Claude Code (executado silenciosamente se o usuário marcou a opção)
+; Configura o MCP no Claude Code
 Filename: "{app}\{#MyAppExeName}"; \
-  Parameters: "setup-mcp --exe-path ""{app}\{#MyAppExeName}"" --kb-root ""{code:GetKbRoot}"""; \
+  Parameters: "setup-mcp --client claude --exe-path ""{app}\{#MyAppExeName}"" --kb-root ""{code:GetKbRoot}"""; \
   Tasks: configure_mcp; \
   Description: "Configurar integração com Claude Code"; \
   Flags: runhidden
 
+; Configura o MCP no Codex
+Filename: "{app}\{#MyAppExeName}"; \
+  Parameters: "setup-mcp --client codex --exe-path ""{app}\{#MyAppExeName}"" --kb-root ""{code:GetKbRoot}"""; \
+  Tasks: configure_mcp_codex; \
+  Description: "Configurar integração com Codex"; \
+  Flags: runhidden
+
 [UninstallRun]
-; Remove a entrada do MCP ao desinstalar
-Filename: "{app}\{#MyAppExeName}"; Parameters: "setup-mcp --remove"; Flags: runhidden
+; Remove entradas MCP ao desinstalar
+Filename: "{app}\{#MyAppExeName}"; Parameters: "setup-mcp --remove --client both"; Flags: runhidden; RunOnceId: "RemoveMCP"
 
 [Code]
 var

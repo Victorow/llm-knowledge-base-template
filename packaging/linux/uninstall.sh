@@ -16,13 +16,13 @@ echo ""
 echo "  This will remove the app, but NOT your KB data folder."
 echo ""
 
-# Remove MCP entry from Claude Code before deleting the exe
+# Remove MCP entries before deleting the exe
 EXE="${APP_DIR}/LLMKnowledgeBase"
 if [ -f "${EXE}" ]; then
-    echo "  Removing Claude Code MCP integration..."
-    "${EXE}" setup-mcp --remove 2>/dev/null \
-        && echo "  MCP entry removed." \
-        || echo "  Warning: could not remove MCP entry automatically."
+    echo "  Removing MCP integrations..."
+    "${EXE}" setup-mcp --remove --client both 2>/dev/null \
+        && echo "  MCP entries removed." \
+        || echo "  Warning: could not remove MCP entries automatically."
 fi
 
 echo "  Removing app files..."
