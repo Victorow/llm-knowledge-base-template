@@ -96,6 +96,72 @@ class ConfigMergeTests(unittest.TestCase):
             commands = [hook["command"] for hook in data["hooks"]["Stop"][0]["hooks"]]
             self.assertEqual(commands, ["echo keep"])
 
+    def test_remove_json_hooks_removes_entries_with_kb_marker_field(self) -> None:
+        """New-style hooks use _kb_marker field instead of # MARKER in command."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "settings.json"
+            backup_dir = root / "backups"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionStart": [
+                                {
+                                    "matcher": "",
+                                    "hooks": [
+                                        {"type": "command", "command": "echo keep"},
+                                        {
+                                            "type": "command",
+                                            "command": "LLMKnowledgeBase.exe hook session-start",
+                                            "_kb_marker": KB_HOOK_MARKER,
+                                        },
+                                    ],
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            remove_json_hooks(config_path, backup_dir=backup_dir)
+
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            commands = [hook["command"] for hook in data["hooks"]["SessionStart"][0]["hooks"]]
+            self.assertEqual(commands, ["echo keep"])
+
+    def test_remove_json_hooks_legacy_command_marker_still_detected(self) -> None:
+        """Old-style hooks with '# LLM_KB_HOOK' in command are still removed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "settings.json"
+            backup_dir = root / "backups"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionEnd": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": f"old_exe hook session-end # {KB_HOOK_MARKER}",
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            remove_json_hooks(config_path, backup_dir=backup_dir)
+
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertNotIn("SessionEnd", data.get("hooks", {}))
+
     def test_write_json_with_backup_restores_original_on_write_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

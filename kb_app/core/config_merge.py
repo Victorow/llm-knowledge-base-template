@@ -113,6 +113,14 @@ def _read_json_object(config_path: Path) -> dict:
     return data
 
 
+def _hook_is_marked(hook: dict, marker: str) -> bool:
+    """Return True if a hook entry belongs to us (by field or legacy command suffix)."""
+    if hook.get("_kb_marker") == marker:
+        return True
+    # Backward compat: old installs embedded the marker as "# MARKER" in command
+    return marker in str(hook.get("command", ""))
+
+
 def _strip_marked_hooks_from_hooks_map(hooks: dict, marker: str) -> None:
     for event_name, groups in list(hooks.items()):
         if not isinstance(groups, list):
@@ -132,7 +140,7 @@ def _strip_marked_hooks_from_hooks_map(hooks: dict, marker: str) -> None:
             kept_hooks = [
                 hook
                 for hook in hook_entries
-                if marker not in str(hook.get("command", ""))
+                if not _hook_is_marked(hook, marker)
             ]
 
             if kept_hooks:

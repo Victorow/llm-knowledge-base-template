@@ -136,12 +136,15 @@ class JobRunner:
     def _install_hooks(self, job: JobRecord, paths) -> dict[str, Any]:
         app_paths = resolve_app_paths()
         client = str(job.payload.get("client", "claude")).lower()
-        executable = str(
-            job.payload.get(
-                "executable",
-                "LLMKnowledgeBase.exe" if sys.platform == "win32" else "llm-knowledge-base",
-            )
-        )
+        if job.payload.get("executable"):
+            executable = str(job.payload["executable"])
+        elif getattr(sys, "frozen", False):
+            # Packaged EXE: use the actual running executable (full path, no PATH lookup)
+            executable = str(sys.executable)
+        elif sys.platform == "win32":
+            executable = "LLMKnowledgeBase.exe"
+        else:
+            executable = "llm-knowledge-base"
         config_path = Path(job.payload.get("config_path") or default_hook_config_path(client))
         backup_dir = Path(job.payload.get("backup_dir") or app_paths.backups_dir)
         hooks = build_hook_groups(client=client, executable=executable, kb_root=paths.root)
@@ -219,8 +222,11 @@ def default_hook_config_path(client: str) -> Path:
 
 
 def build_hook_groups(*, client: str, executable: str, kb_root: Path) -> dict[str, list[dict]]:
+    # Quote path if it contains spaces so the shell treats it as one token
+    exe_str = f'"{executable}"' if " " in executable else executable
+
     def command(event: str) -> str:
-        return f'{executable} --kb-root "{kb_root}" hook {event} # {KB_HOOK_MARKER}'
+        return f'{exe_str} --kb-root "{kb_root}" hook {event}'
 
     if client == "claude":
         return {
@@ -240,7 +246,12 @@ def build_hook_groups(*, client: str, executable: str, kb_root: Path) -> dict[st
 def _hook_group(matcher: str, command: str, timeout: int) -> dict:
     return {
         "matcher": matcher,
-        "hooks": [{"type": "command", "command": command, "timeout": timeout}],
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": timeout,
+            "_kb_marker": KB_HOOK_MARKER,
+        }],
     }
 
 
