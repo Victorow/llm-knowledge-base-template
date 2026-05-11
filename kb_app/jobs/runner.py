@@ -180,10 +180,15 @@ class JobRunner:
         startup_dir = Path(job.payload.get("startup_dir") or default_autostart_dir())
         startup_dir.mkdir(parents=True, exist_ok=True)
         launcher_path = startup_dir / (
-            "LLM Knowledge Base.cmd" if sys.platform == "win32" else "llm-knowledge-base.desktop"
+            "LLM Knowledge Base.vbs" if sys.platform == "win32" else "llm-knowledge-base.desktop"
         )
         if sys.platform == "win32":
-            launcher_path.write_text(f'@echo off\nstart "" "{executable}" ui\n', encoding="utf-8")
+            safe_executable = executable.replace('"', '""')
+            launcher_path.write_text(
+                'Set shell = CreateObject("WScript.Shell")\n'
+                f'shell.Run """" & "{safe_executable}" & """ ui", 0, False\n',
+                encoding="utf-8",
+            )
         else:
             launcher_path.write_text(
                 "\n".join(
@@ -203,6 +208,7 @@ class JobRunner:
     def _remove_autostart(self, job: JobRecord) -> dict[str, Any]:
         startup_dir = Path(job.payload.get("startup_dir") or default_autostart_dir())
         candidates = [
+            startup_dir / "LLM Knowledge Base.vbs",
             startup_dir / "LLM Knowledge Base.cmd",
             startup_dir / "llm-knowledge-base.desktop",
         ]
