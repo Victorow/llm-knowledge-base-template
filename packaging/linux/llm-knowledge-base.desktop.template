@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=LLM Knowledge Base
+GenericName=Personal Knowledge Base
+Comment=Personal knowledge base that builds itself from your AI coding sessions
+Exec=__APP_DIR__/LLMKnowledgeBase ui
+Icon=__APP_DIR__/LLMKnowledgeBase.png
+Terminal=false
+Categories=Utility;Development;
+Keywords=knowledge;notes;wiki;ai;claude;
+StartupNotify=true
+StartupWMClass=LLMKnowledgeBase

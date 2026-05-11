@@ -1,13 +1,25 @@
 [project]
 name = "llm-knowledge-base"
 version = "0.1.0"
-description = "Personal knowledge base compiled from Claude Code conversations - inspired by Karpathy's LLM KB architecture"
+description = "Personal knowledge base compiled from AI coding sessions - inspired by Karpathy's LLM KB architecture"
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.1.29",
+    "mcp>=1.9.0",
+    "pyside6>=6.11.0",
     "python-dotenv>=1.0.0",
     "tzdata>=2024.1",
 ]
 
+[project.scripts]
+llm-knowledge-base = "kb_app.__main__:main"
+llm-kb-mcp = "kb_mcp.server:main"
+
 [tool.ruff]
 line-length = 100
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.20.0",
+    "pytest>=9.0.3",
+]

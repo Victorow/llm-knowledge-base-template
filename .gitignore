@@ -8,6 +8,10 @@ venv/
 # uv
 uv.lock
 
+# Build artifacts
+build/
+dist/
+
 # Runtime state and logs
 scripts/state.json
 scripts/last-flush.json
@@ -15,6 +19,11 @@ scripts/flush.log
 scripts/compile.log
 scripts/session-flush-*.md
 scripts/flush-context-*.md
+
+# Local hook configs with absolute paths
+.codex/config.toml
+.codex/hooks.json
+.claude/settings.json
 
 # Reports (generated)
 reports/
