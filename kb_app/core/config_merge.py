@@ -107,7 +107,8 @@ def write_json_with_backup(
 def _read_json_object(config_path: Path) -> dict:
     if not config_path.exists():
         return {}
-    data = json.loads(config_path.read_text(encoding="utf-8"))
+    # utf-8-sig transparently strips BOM written by Windows tools (e.g. PowerShell 5)
+    data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
         raise ValueError(f"JSON config root must be an object: {config_path}")
     return data
