@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.transcripts import extract_conversation_context
+from kb_app.core.transcripts import extract_conversation_context
 
 
 class TranscriptExtractionTests(unittest.TestCase):

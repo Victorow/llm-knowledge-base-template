@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.agent_backend import (
+from kb_app.core.agent_backend import (
     AgentResult,
     build_codex_exec_command,
     resolve_codex_executable,
@@ -72,8 +72,8 @@ class AgentBackendTests(unittest.TestCase):
 
     def test_resolve_codex_executable_prefers_cmd_shim_on_windows(self) -> None:
         with (
-            patch("scripts.agent_backend.sys.platform", "win32"),
-            patch("scripts.agent_backend.shutil.which") as which,
+            patch("kb_app.core.agent_backend.sys.platform", "win32"),
+            patch("kb_app.core.agent_backend.shutil.which") as which,
         ):
             which.side_effect = lambda name: {
                 "codex.exe": "C:/Program Files/Codex/codex.exe",
@@ -99,7 +99,7 @@ class AgentBackendTests(unittest.TestCase):
 
             return Completed()
 
-        with patch("scripts.agent_backend.subprocess.run", fake_run):
+        with patch("kb_app.core.agent_backend.subprocess.run", fake_run):
             result = run_codex_agent(
                 "unicode prompt \ufeff",
                 cwd=Path.cwd(),
