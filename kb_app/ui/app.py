@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from kb_app.core.config_merge import KB_HOOK_MARKER
+from kb_app.core.mcp_setup import find_claude_config, find_codex_config, mcp_is_configured, mcp_is_configured_codex
 from kb_app.core.paths import resolve_app_paths, resolve_kb_paths
 from kb_app.diagnostics.export import export_diagnostics
 from kb_app.jobs.queue import JobStore
-from kb_app.jobs.runner import JobRunner
+from kb_app.jobs.runner import JobRunner, default_hook_config_path
 from kb_app.profiles.store import ProfileStore
 
 PYSIDE_PACKAGE_NAME = "PySide6"
@@ -22,17 +25,24 @@ class PageDefinition:
 
 
 PAGE_REGISTRY = [
-    PageDefinition("dashboard", "Dashboard"),
-    PageDefinition("setup", "Setup"),
-    PageDefinition("profiles", "Profiles"),
-    PageDefinition("hooks", "Hooks"),
-    PageDefinition("daily_logs", "Daily Logs"),
-    PageDefinition("knowledge", "Knowledge"),
-    PageDefinition("operations", "Operations"),
-    PageDefinition("jobs", "Jobs"),
-    PageDefinition("settings", "Settings"),
-    PageDefinition("diagnostics", "Diagnostics"),
+    PageDefinition("tutorial",   "Tutorial"),       # 0
+    PageDefinition("dashboard",  "Dashboard"),      # 1
+    PageDefinition("setup",      "Setup"),          # 2
+    PageDefinition("profiles",   "Profiles"),       # 3
+    PageDefinition("hooks",      "Hooks"),          # 4
+    PageDefinition("daily_logs", "Daily Logs"),     # 5
+    PageDefinition("knowledge",  "Knowledge"),      # 6
+    PageDefinition("operations", "Operations"),     # 7
+    PageDefinition("jobs",       "Jobs"),           # 8
+    PageDefinition("settings",   "Settings"),       # 9
+    PageDefinition("diagnostics","Diagnostics"),    # 10
 ]
+
+# Sidebar indices — keep in sync with PAGE_REGISTRY above
+_PAGE_TUTORIAL    = 0
+_PAGE_HOOKS       = 4
+_PAGE_OPERATIONS  = 7
+_PAGE_KNOWLEDGE   = 6
 
 ACTION_TO_JOB_TYPE = {
     "compile_changed": "compile_changed",
@@ -145,8 +155,10 @@ class ControlPanelWindow:
         self._job_timer.start()
 
     def show(self) -> None:
-        self.refresh_all()
         self.window.show()
+        self._show_first_run_dialog()
+        self.refresh_all()
+        self.sidebar.setCurrentRow(_PAGE_TUTORIAL)
 
     def _build(self) -> None:
         QtWidgets = self.QtWidgets
@@ -178,16 +190,17 @@ class ControlPanelWindow:
         self.window.setCentralWidget(root)
 
     def _create_pages(self) -> None:
+        self._add_page("Tutorial",   self._tutorial_controls)
         self.dashboard_label = self._add_page("Dashboard", self._dashboard_controls)
-        self._add_page("Setup", self._setup_controls)
+        self._add_page("Setup",      self._setup_controls)
         self.profiles_list = self._add_page("Profiles", self._profiles_controls)
-        self._add_page("Hooks", self._hooks_controls)
+        self._add_page("Hooks",      self._hooks_controls)
         self.daily_list = self._add_page("Daily Logs", self._daily_controls)
         self.knowledge_list = self._add_page("Knowledge", self._knowledge_controls)
         self._add_page("Operations", self._operations_controls)
         self.jobs_list = self._add_page("Jobs", self._jobs_controls)
-        self._add_page("Settings", self._settings_controls)
-        self._add_page("Diagnostics", self._diagnostics_controls)
+        self._add_page("Settings",   self._settings_controls)
+        self._add_page("Diagnostics",self._diagnostics_controls)
 
     def _add_page(self, title: str, builder):
         QtWidgets = self.QtWidgets
@@ -233,6 +246,271 @@ class ControlPanelWindow:
         self._button(form, "Create", self.create_profile)
         self._button(form, "Activate Selected", self.activate_selected_profile)
         return profile_list
+
+    # ------------------------------------------------------------------
+    # Tutorial page
+    # ------------------------------------------------------------------
+
+    def _tutorial_controls(self, layout):
+        QtWidgets = self.QtWidgets
+
+        # ── Status box ──────────────────────────────────────────────
+        status_box = QtWidgets.QGroupBox("Status Atual")
+        status_layout = QtWidgets.QVBoxLayout(status_box)
+
+        self._tut_profile_lbl      = QtWidgets.QLabel()
+        self._tut_claude_hooks_lbl = QtWidgets.QLabel()
+        self._tut_codex_hooks_lbl  = QtWidgets.QLabel()
+        self._tut_claude_mcp_lbl   = QtWidgets.QLabel()
+        self._tut_codex_mcp_lbl    = QtWidgets.QLabel()
+
+        for lbl in (
+            self._tut_profile_lbl,
+            self._tut_claude_hooks_lbl,
+            self._tut_codex_hooks_lbl,
+            self._tut_claude_mcp_lbl,
+            self._tut_codex_mcp_lbl,
+        ):
+            lbl.setWordWrap(True)
+            status_layout.addWidget(lbl)
+
+        refresh_status_btn = QtWidgets.QPushButton("Atualizar Status")
+        refresh_status_btn.clicked.connect(self.refresh_tutorial)
+        status_layout.addWidget(refresh_status_btn)
+        layout.addWidget(status_box)
+
+        # ── Steps ────────────────────────────────────────────────────
+        def step(number: str, title: str, body: str) -> QtWidgets.QWidget:
+            frame = QtWidgets.QFrame()
+            frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
+            vbox = QtWidgets.QVBoxLayout(frame)
+            header = QtWidgets.QLabel(f"<b>Passo {number} — {title}</b>")
+            header.setStyleSheet("font-size: 13px;")
+            desc = QtWidgets.QLabel(body)
+            desc.setWordWrap(True)
+            desc.setStyleSheet("color: #444;")
+            vbox.addWidget(header)
+            vbox.addWidget(desc)
+            return frame, vbox
+
+        # Step 1 — Perfil
+        f1, v1 = step("1", "Criar Perfil  ✅",
+            "Um perfil diz ao app onde salvar sua base de conhecimento. "
+            "Se você ainda não tem um, vá em <b>Profiles</b>, preencha o nome "
+            "e a pasta, e clique em <b>Create</b> e depois <b>Activate Selected</b>.")
+        btn_profiles = QtWidgets.QPushButton("Ir para Profiles →")
+        btn_profiles.clicked.connect(lambda: self.sidebar.setCurrentRow(3))
+        v1.addWidget(btn_profiles)
+        layout.addWidget(f1)
+
+        # Step 2 — Hooks
+        f2, v2 = step("2", "Instalar Hooks",
+            "Hooks são pequenos scripts que o Claude Code / Codex chama "
+            "automaticamente ao início e fim de cada sessão. "
+            "Sem eles o app não captura nada.\n\n"
+            "→ Clique em <b>Ir para Hooks</b>\n"
+            "→ Escolha o cliente (Claude Code ou Codex)\n"
+            "→ Clique em <b>Install Hooks</b>")
+        btn_hooks = QtWidgets.QPushButton("Ir para Hooks →")
+        btn_hooks.clicked.connect(lambda: self.sidebar.setCurrentRow(_PAGE_HOOKS))
+        v2.addWidget(btn_hooks)
+        layout.addWidget(f2)
+
+        # Step 3 — Restart
+        f3, _ = step("3", "Reiniciar o Claude Code / Codex",
+            "Depois de instalar os hooks, feche completamente o Claude Code "
+            "(ou Codex) e abra de novo. Isso faz os hooks entrarem em vigor.")
+        layout.addWidget(f3)
+
+        # Step 4 — Work normally
+        f4, _ = step("4", "Trabalhar Normalmente",
+            "A partir de agora, toda sessão com o Claude Code é capturada "
+            "automaticamente em segundo plano. Você não precisa fazer nada — "
+            "basta trabalhar como sempre.")
+        layout.addWidget(f4)
+
+        # Step 5 — Compile
+        f5, v5 = step("5", "Compilar os Logs (após as primeiras sessões)",
+            "Depois de alguns dias de trabalho, compile os logs para gerar "
+            "artigos de wiki organizados. Você pode fazer isso quando quiser, "
+            "ou ativar a compilação automática diária em <b>Settings</b>.\n\n"
+            "→ Clique em <b>Ir para Operations</b>\n"
+            "→ Clique em <b>Compile Changed</b>")
+        btn_ops = QtWidgets.QPushButton("Ir para Operations →")
+        btn_ops.clicked.connect(lambda: self.sidebar.setCurrentRow(_PAGE_OPERATIONS))
+        v5.addWidget(btn_ops)
+        layout.addWidget(f5)
+
+        # Step 6 — Query
+        f6, v6 = step("6", "Consultar sua Base de Conhecimento",
+            "Pergunte em linguagem natural sobre o que você já aprendeu:\n"
+            "\"Como eu fiz X?\", \"Qual biblioteca eu uso para Y?\"\n\n"
+            "→ Clique em <b>Ir para Knowledge</b>\n"
+            "→ Digite sua pergunta\n"
+            "→ Clique em <b>Query</b>")
+        btn_know = QtWidgets.QPushButton("Ir para Knowledge →")
+        btn_know.clicked.connect(lambda: self.sidebar.setCurrentRow(_PAGE_KNOWLEDGE))
+        v6.addWidget(btn_know)
+        layout.addWidget(f6)
+
+        # MCP info box
+        mcp_box = QtWidgets.QGroupBox("Sobre o MCP (integração automática com a IA)")
+        mcp_vbox = QtWidgets.QVBoxLayout(mcp_box)
+        mcp_desc = QtWidgets.QLabel(
+            "O MCP permite que o Claude Code / Codex consulte sua KB "
+            "<b>automaticamente durante a conversa</b>, sem você precisar pedir.\n\n"
+            "Foi configurado durante a instalação. Se precisar reconfigurar:\n"
+            "  • Windows: abra o terminal e execute  "
+            "<code>LLMKnowledgeBase.exe setup-mcp --status</code>\n"
+            "  • Linux: <code>llm-knowledge-base setup-mcp --status</code>"
+        )
+        mcp_desc.setWordWrap(True)
+        mcp_vbox.addWidget(mcp_desc)
+        layout.addWidget(mcp_box)
+
+    def refresh_tutorial(self) -> None:
+        """Update live status labels on the Tutorial page."""
+        ok  = "✅"
+        err = "❌"
+        na  = "—"
+
+        profile = self.active_profile()
+        if profile:
+            self._tut_profile_lbl.setText(f"{ok}  Perfil ativo: <b>{profile.name}</b>  ({profile.root_path})")
+        else:
+            self._tut_profile_lbl.setText(f"{err}  Nenhum perfil configurado — vá em <b>Profiles</b>")
+
+        for client, lbl in (("claude", self._tut_claude_hooks_lbl), ("codex", self._tut_codex_hooks_lbl)):
+            icon = ok if self._hooks_installed(client) else err
+            label = "Claude Code" if client == "claude" else "Codex"
+            lbl.setText(f"{icon}  Hooks {label}: {'instalados' if icon == ok else 'não instalados'}")
+
+        claude_mcp = mcp_is_configured()
+        codex_mcp  = mcp_is_configured_codex()
+        self._tut_claude_mcp_lbl.setText(
+            f"{ok if claude_mcp else err}  MCP Claude Code: {'configurado' if claude_mcp else 'não configurado'}"
+        )
+        self._tut_codex_mcp_lbl.setText(
+            f"{ok if codex_mcp else err}  MCP Codex: {'configurado' if codex_mcp else 'não configurado'}"
+        )
+
+    def _hooks_installed(self, client: str) -> bool:
+        """Return True if our hook marker exists in the client's config file."""
+        try:
+            config = default_hook_config_path(client)
+            if not config.exists():
+                return False
+            return KB_HOOK_MARKER in config.read_text(encoding="utf-8")
+        except OSError:
+            return False
+
+    # ------------------------------------------------------------------
+    # First-run dialog
+    # ------------------------------------------------------------------
+
+    def _show_first_run_dialog(self) -> None:
+        """If no profiles exist, show a dialog to create the first one."""
+        if self.profile_store.list_profiles():
+            return  # Already set up
+
+        QtWidgets = self.QtWidgets
+        dialog = QtWidgets.QDialog(self.window)
+        dialog.setWindowTitle("Bem-vindo ao LLM Knowledge Base!")
+        dialog.setMinimumWidth(520)
+        dialog.setModal(True)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+
+        welcome = QtWidgets.QLabel(
+            "<h2>👋 Bem-vindo!</h2>"
+            "<p>Antes de começar, precisamos criar seu primeiro <b>perfil</b>.<br>"
+            "Um perfil define o nome e onde sua base de conhecimento fica salva.</p>"
+        )
+        welcome.setWordWrap(True)
+        layout.addWidget(welcome)
+
+        form = QtWidgets.QFormLayout()
+
+        name_input = QtWidgets.QLineEdit("Meu KB")
+        form.addRow("Nome do perfil:", name_input)
+
+        root_row = QtWidgets.QHBoxLayout()
+        default_root = str(self._detect_default_kb_root())
+        root_input = QtWidgets.QLineEdit(default_root)
+        browse_btn = QtWidgets.QPushButton("Procurar…")
+        root_row.addWidget(root_input)
+        root_row.addWidget(browse_btn)
+        root_container = QtWidgets.QWidget()
+        root_container.setLayout(root_row)
+        form.addRow("Pasta da base de conhecimento:", root_container)
+
+        layout.addLayout(form)
+
+        def browse() -> None:
+            folder = QtWidgets.QFileDialog.getExistingDirectory(
+                dialog, "Escolha a pasta da sua KB", root_input.text()
+            )
+            if folder:
+                root_input.setText(folder)
+
+        browse_btn.clicked.connect(browse)
+
+        error_lbl = QtWidgets.QLabel("")
+        error_lbl.setStyleSheet("color: red;")
+        layout.addWidget(error_lbl)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        create_btn = QtWidgets.QPushButton("Criar Perfil e Continuar →")
+        create_btn.setDefault(True)
+        btn_row.addStretch(1)
+        btn_row.addWidget(create_btn)
+        layout.addLayout(btn_row)
+
+        def create() -> None:
+            name = name_input.text().strip() or "Meu KB"
+            root = Path(root_input.text().strip())
+            if not root_input.text().strip():
+                error_lbl.setText("Escolha uma pasta para a base de conhecimento.")
+                return
+            # Create directory structure
+            for sub in [
+                "kb/daily",
+                "kb/knowledge/concepts",
+                "kb/knowledge/connections",
+                "kb/knowledge/qa",
+            ]:
+                (root / sub).mkdir(parents=True, exist_ok=True)
+            profile_id = self.profile_store.create_profile(name, str(root))
+            self.profile_store.set_active_profile(profile_id)
+            # Update kb_root so the window reflects the new profile
+            self.kb_root = root
+            self.kb_paths = resolve_kb_paths(root)
+            dialog.accept()
+
+        create_btn.clicked.connect(create)
+
+        # Prevent closing without creating a profile
+        dialog.setWindowFlag(0x00040000, False)  # Qt.WindowCloseButtonHint
+        dialog.exec()
+
+    def _detect_default_kb_root(self) -> Path:
+        """Read KB_ROOT from .install-config (installer) or fall back to OS default."""
+        exe_dir = Path(sys.executable).parent
+        config_file = exe_dir / ".install-config"
+        if config_file.exists():
+            try:
+                for line in config_file.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("KB_ROOT="):
+                        val = line.split("=", 1)[1].strip()
+                        if val:
+                            return Path(val)
+            except OSError:
+                pass
+        return Path.home() / "Documents" / "LLM Knowledge Base"
+
+    # ------------------------------------------------------------------
+    # Hooks page
+    # ------------------------------------------------------------------
 
     def _hooks_controls(self, layout):
         QtWidgets = self.QtWidgets
@@ -422,6 +700,7 @@ class ControlPanelWindow:
         self.refresh_jobs()
 
     def refresh_all(self) -> None:
+        self.refresh_tutorial()
         self.refresh_dashboard()
         self.refresh_profiles()
         self.refresh_daily_logs()
