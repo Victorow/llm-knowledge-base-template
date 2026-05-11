@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 from pathlib import Path
 
+from agent_backend import run_agent_text
 from config import KNOWLEDGE_DIR, QA_DIR, now_iso
 from utils import load_state, read_all_wiki_content, save_state
 
@@ -24,14 +26,6 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 async def run_query(question: str, file_back: bool = False) -> str:
     """Query the knowledge base and optionally file the answer back."""
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ResultMessage,
-        TextBlock,
-        query,
-    )
-
     wiki_content = read_all_wiki_content()
 
     tools = ["Read", "Glob", "Grep"]
@@ -83,22 +77,18 @@ consulting the knowledge base below.
     cost = 0.0
 
     try:
-        async for message in query(
+        result = await run_agent_text(
             prompt=prompt,
-            options=ClaudeAgentOptions(
-                cwd=str(ROOT_DIR),
-                system_prompt={"type": "preset", "preset": "claude_code"},
-                allowed_tools=tools,
-                permission_mode="acceptEdits",
-                max_turns=15,
-            ),
-        ):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        answer += block.text
-            elif isinstance(message, ResultMessage):
-                cost = message.total_cost_usd or 0.0
+            cwd=ROOT_DIR,
+            writable=file_back,
+            claude_allowed_tools=tools,
+            claude_system_prompt={"type": "preset", "preset": "claude_code"},
+            claude_permission_mode="acceptEdits",
+            claude_max_turns=15,
+            timeout_seconds=int(os.environ.get("KB_QUERY_TIMEOUT_SECONDS", "1800")),
+        )
+        answer = result.text
+        cost = result.cost_usd
     except Exception as e:
         answer = f"Error querying knowledge base: {e}"
 

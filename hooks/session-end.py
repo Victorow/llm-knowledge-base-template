@@ -19,15 +19,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Recursion guard: if we were spawned by flush.py (which calls Agent SDK,
-# which runs Claude Code, which would fire this hook again), exit immediately.
-if os.environ.get("CLAUDE_INVOKED_BY"):
+# Recursion guard: if we were spawned by flush.py or an agent backend child
+# process, exit immediately.
+if os.environ.get("CLAUDE_INVOKED_BY") or os.environ.get("KB_INVOKED_BY"):
     sys.exit(0)
 
 ROOT = Path(__file__).resolve().parent.parent
-DAILY_DIR = ROOT / "kb" / "daily"
 SCRIPTS_DIR = ROOT / "scripts"
 STATE_DIR = SCRIPTS_DIR
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from transcripts import extract_conversation_context
 
 logging.basicConfig(
     filename=str(SCRIPTS_DIR / "flush.log"),
@@ -41,54 +44,9 @@ MAX_CONTEXT_CHARS = 15_000
 MIN_TURNS_TO_FLUSH = 1
 
 
-def extract_conversation_context(transcript_path: Path) -> tuple[str, int]:
-    """Read JSONL transcript and extract last ~N conversation turns as markdown."""
-    turns: list[str] = []
-
-    with open(transcript_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            msg = entry.get("message", {})
-            if isinstance(msg, dict):
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-            else:
-                role = entry.get("role", "")
-                content = entry.get("content", "")
-
-            if role not in ("user", "assistant"):
-                continue
-
-            if isinstance(content, list):
-                text_parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-                content = "\n".join(text_parts)
-
-            if isinstance(content, str) and content.strip():
-                label = "User" if role == "user" else "Assistant"
-                turns.append(f"**{label}:** {content.strip()}\n")
-
-    recent = turns[-MAX_TURNS:]
-    context = "\n".join(recent)
-
-    if len(context) > MAX_CONTEXT_CHARS:
-        context = context[-MAX_CONTEXT_CHARS:]
-        boundary = context.find("\n**")
-        if boundary > 0:
-            context = context[boundary + 1 :]
-
-    return context, len(recent)
+def safe_filename_fragment(value: str) -> str:
+    """Return a conservative filename fragment for hook-provided ids."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")[:120] or "unknown"
 
 
 def main() -> None:
@@ -122,7 +80,11 @@ def main() -> None:
 
     # Extract conversation context in the hook (fast, no API calls)
     try:
-        context, turn_count = extract_conversation_context(transcript_path)
+        context, turn_count = extract_conversation_context(
+            transcript_path,
+            max_turns=MAX_TURNS,
+            max_context_chars=MAX_CONTEXT_CHARS,
+        )
     except Exception as e:
         logging.error("Context extraction failed: %s", e)
         return
@@ -137,7 +99,7 @@ def main() -> None:
 
     # Write context to a temp file for the background process
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
-    context_file = STATE_DIR / f"session-flush-{session_id}-{timestamp}.md"
+    context_file = STATE_DIR / f"session-flush-{safe_filename_fragment(session_id)}-{timestamp}.md"
     context_file.write_text(context, encoding="utf-8")
 
     # Spawn flush.py as a background process
@@ -156,15 +118,18 @@ def main() -> None:
 
     # On Windows, use CREATE_NO_WINDOW to avoid flash console window.
     # Do NOT use DETACHED_PROCESS — it breaks the Agent SDK's subprocess I/O.
-    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    popen_kwargs = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if sys.platform == "win32":
+        # Do not use DETACHED_PROCESS: it breaks the Agent SDK's subprocess I/O.
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    else:
+        popen_kwargs["start_new_session"] = True
 
     try:
-        subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=creation_flags,
-        )
+        subprocess.Popen(cmd, **popen_kwargs)
         logging.info("Spawned flush.py for session %s (%d turns, %d chars)", session_id, turn_count, len(context))
     except Exception as e:
         logging.error("Failed to spawn flush.py: %s", e)

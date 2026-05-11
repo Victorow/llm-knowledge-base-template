@@ -2,8 +2,8 @@
 Memory flush agent - extracts important knowledge from conversation context.
 
 Spawned by session-end.py or pre-compact.py as a background process. Reads
-pre-extracted conversation context from a .md file, uses the Claude Agent SDK
-to decide what's worth saving, and appends the result to today's daily log.
+pre-extracted conversation context from a .md file, uses the selected agent
+backend to decide what's worth saving, and appends the result to today's daily log.
 
 Usage:
     uv run python flush.py <context_file.md> <session_id>
@@ -14,6 +14,7 @@ from __future__ import annotations
 # Recursion prevention: set this BEFORE any imports that might trigger Claude
 import os
 os.environ["CLAUDE_INVOKED_BY"] = "memory_flush"
+os.environ["KB_INVOKED_BY"] = "memory_flush"
 
 import asyncio
 import json
@@ -73,14 +74,8 @@ def append_to_daily_log(content: str, section: str = "Session") -> None:
 
 
 async def run_flush(context: str) -> str:
-    """Use Claude Agent SDK to extract important knowledge from conversation context."""
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ResultMessage,
-        TextBlock,
-        query,
-    )
+    """Use the selected agent backend to extract important knowledge."""
+    from agent_backend import run_agent_text
 
     prompt = f"""You are summarizing a past conversation transcript for a daily log archive.
 The transcript is shown below between the <transcript> tags. It is HISTORICAL —
@@ -116,30 +111,20 @@ If nothing is worth saving, respond with exactly: FLUSH_OK
 Your entire response must be either the structured entry above or the literal
 string FLUSH_OK — nothing else, no preamble, no direct reply to the transcript."""
 
-    response = ""
-    stderr_lines: list[str] = []
-
     try:
-        async for message in query(
+        result = await run_agent_text(
             prompt=prompt,
-            options=ClaudeAgentOptions(
-                cwd=str(ROOT),
-                allowed_tools=[],
-                max_turns=2,
-                stderr=lambda line: stderr_lines.append(line),
-            ),
-        ):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        response += block.text
-            elif isinstance(message, ResultMessage):
-                pass
+            cwd=ROOT,
+            writable=False,
+            claude_allowed_tools=[],
+            claude_max_turns=2,
+            timeout_seconds=int(os.environ.get("KB_FLUSH_TIMEOUT_SECONDS", "300")),
+        )
+        response = result.text
     except Exception as e:
         import traceback
-        stderr_blob = "\n".join(stderr_lines[-50:]).strip() or "<no stderr captured>"
-        logging.error("Agent SDK error: %s\nCLI stderr:\n%s\n%s", e, stderr_blob, traceback.format_exc())
-        response = f"FLUSH_ERROR: {type(e).__name__}: {e}\nCLI stderr: {stderr_blob}"
+        logging.error("Agent backend error: %s\n%s", e, traceback.format_exc())
+        response = f"FLUSH_ERROR: {type(e).__name__}: {e}"
 
     return response
 

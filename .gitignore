@@ -16,6 +16,11 @@ scripts/compile.log
 scripts/session-flush-*.md
 scripts/flush-context-*.md
 
+# Local hook configs with absolute paths
+.codex/config.toml
+.codex/hooks.json
+.claude/settings.json
+
 # Reports (generated)
 reports/
 

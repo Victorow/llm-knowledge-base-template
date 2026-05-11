@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
+from agent_backend import run_agent_text
 from config import AGENTS_FILE, CONCEPTS_DIR, CONNECTIONS_DIR, DAILY_DIR, KNOWLEDGE_DIR, now_iso
 from utils import (
     file_hash,
@@ -37,14 +39,6 @@ async def compile_daily_log(log_path: Path, state: dict) -> float:
 
     Returns the API cost of the compilation.
     """
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ResultMessage,
-        TextBlock,
-        query,
-    )
-
     log_content = log_path.read_text(encoding="utf-8")
     schema = AGENTS_FILE.read_text(encoding="utf-8")
     wiki_index = read_wiki_index()
@@ -129,23 +123,18 @@ Read the daily log above and compile it into wiki articles following the schema 
     cost = 0.0
 
     try:
-        async for message in query(
+        result = await run_agent_text(
             prompt=prompt,
-            options=ClaudeAgentOptions(
-                cwd=str(ROOT_DIR),
-                system_prompt={"type": "preset", "preset": "claude_code"},
-                allowed_tools=["Read", "Write", "Edit", "Glob", "Grep"],
-                permission_mode="acceptEdits",
-                max_turns=30,
-            ),
-        ):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        pass  # compilation output - LLM writes files directly
-            elif isinstance(message, ResultMessage):
-                cost = message.total_cost_usd or 0.0
-                print(f"  Cost: ${cost:.4f}")
+            cwd=ROOT_DIR,
+            writable=True,
+            claude_allowed_tools=["Read", "Write", "Edit", "Glob", "Grep"],
+            claude_system_prompt={"type": "preset", "preset": "claude_code"},
+            claude_permission_mode="acceptEdits",
+            claude_max_turns=30,
+            timeout_seconds=int(os.environ.get("KB_COMPILE_TIMEOUT_SECONDS", "3600")),
+        )
+        cost = result.cost_usd
+        print(f"  Cost: ${cost:.4f}" if cost else "  Cost: unavailable for selected backend")
     except Exception as e:
         print(f"  Error: {e}")
         return 0.0

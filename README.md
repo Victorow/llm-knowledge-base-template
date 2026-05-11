@@ -1,155 +1,182 @@
 # LLM Knowledge Base
 
-A personal knowledge base that compiles itself from your Claude Code conversations. Inspired by [Andrej Karpathy's LLM Knowledge Base](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — but instead of ingesting external articles, it ingests **your own AI sessions**.
+A personal knowledge base that compiles itself from AI coding sessions. It is inspired by Andrej Karpathy's LLM Knowledge Base architecture, but the source material is your own conversations with Claude Code or Codex.
 
 ```
-daily/          = source code        (raw conversation logs)
-LLM             = compiler           (extracts structured knowledge)
-knowledge/      = executable         (queryable wiki articles)
+kb/daily/       = source code        (raw conversation memories)
+Agent backend   = compiler           (extracts structured knowledge)
+kb/knowledge/   = executable         (queryable wiki articles)
 ```
 
-You don't manually organize anything. You have conversations, hooks capture them, and a scheduled compile turns them into a wiki you can query.
+You work normally. Hooks capture sessions, a flush step writes structured daily logs, and compile turns those logs into a markdown wiki.
 
----
+## Supported Clients
 
-## What's in this repo
+| Surface | Status | How it works |
+|---------|--------|--------------|
+| Claude Code | Supported | `SessionStart`, `SessionEnd`, and `PreCompact` hooks |
+| Codex | Supported | `SessionStart` and `Stop` hooks with `features.codex_hooks = true` |
+| macOS/Linux automation | Supported | `scripts/compile-daily.sh` with launchd or systemd |
+| Windows automation | Supported | `scripts/compile-daily.ps1` with Task Scheduler |
+
+The transcript parser is provider-neutral: Claude Code JSONL and Codex rollout JSONL are normalized into the same user/assistant turn stream before flushing.
+
+## What's In This Repo
 
 | Path | Purpose |
 |------|---------|
-| `hooks/session-start.py` | Injects KB index + recent daily log into every new Claude Code session |
-| `hooks/session-end.py`   | Captures transcript when a session ends and spawns `flush.py` |
-| `hooks/pre-compact.py`   | Same as `session-end`, but fires before Claude's auto-compaction |
-| `scripts/flush.py`       | Uses Claude Agent SDK to summarize a transcript into a daily-log entry |
-| `scripts/compile.py`     | Reads daily logs and produces structured wiki articles in `kb/knowledge/` |
-| `scripts/query.py`       | Asks the wiki a question (index-guided retrieval, no embeddings) |
-| `scripts/lint.py`        | Health checks: broken links, orphans, contradictions, etc. |
-| `scripts/compile-daily.sh` | Wrapper script — used by launchd for the daily 17:00 compile |
-| `AGENTS.md`              | Schema for daily logs and wiki articles (read by the compiler) |
-| `kb/`                    | Your knowledge — `daily/` raw + `knowledge/` compiled |
-| `.claude/settings.example.json` | Hook config to copy into `~/.claude/settings.json` |
-
----
+| `hooks/session-start.py` | Injects KB index + recent daily log into Claude Code or Codex sessions |
+| `hooks/session-end.py` | Captures a transcript and spawns `flush.py`; used by Claude `SessionEnd` and Codex `Stop` |
+| `hooks/pre-compact.py` | Claude Code safety hook before compaction |
+| `scripts/transcripts.py` | Normalizes Claude Code and Codex JSONL transcripts |
+| `scripts/agent_backend.py` | Selects Claude Agent SDK or Codex CLI for LLM execution |
+| `scripts/flush.py` | Summarizes captured context into `kb/daily/YYYY-MM-DD.md` |
+| `scripts/compile.py` | Compiles daily logs into `kb/knowledge/` articles |
+| `scripts/query.py` | Asks the wiki a question, optionally filing the answer back |
+| `scripts/lint.py` | Structural and semantic health checks |
+| `scripts/compile-daily.sh` | macOS/Linux daily compile wrapper |
+| `scripts/compile-daily.ps1` | Windows daily compile wrapper |
+| `scripts/register-windows-task.ps1` | Registers the Windows scheduled task |
+| `.claude/*.example.json` | Claude Code hook templates |
+| `.codex/*.example.*` | Codex hook/config templates |
+| `CONTEXT.md` | Project language and boundaries |
+| `AGENTS.md` | Schema and compiler specification |
 
 ## Prerequisites
 
-- macOS or Linux (Windows works for the scripts; launchd automation is macOS-specific)
-- [Claude Code](https://claude.com/claude-code) installed and authenticated
-- [`uv`](https://docs.astral.sh/uv/) — Python project manager
-- Python 3.12+
+- Python 3.12+ and `uv`
+- One AI client:
+  - Claude Code installed and authenticated, or
+  - Codex CLI/App installed and authenticated
+- One agent backend:
+  - default: Claude Agent SDK credentials from Claude Code
+  - Codex: set `KB_AGENT_BACKEND=codex`
+
+Install dependencies:
 
 ```bash
-# install uv (macOS)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
----
-
-## Setup
-
-### 1. Clone and install
-
-```bash
-git clone https://github.com/<YOUR-USER>/llm-knowledge-base.git ~/llm-knowledge-base
-cd ~/llm-knowledge-base
 uv sync
 ```
 
-### 2. Wire up the Claude Code hooks
+On Windows PowerShell:
 
-Copy the example settings and replace the placeholder paths with your absolute clone path:
+```powershell
+uv sync
+```
+
+## Agent Backend
+
+The client that produced the transcript and the backend that performs LLM work are deliberately separate.
+
+Default backend:
 
 ```bash
-# back up your current settings
-cp ~/.claude/settings.json ~/.claude/settings.backup.json 2>/dev/null || true
+uv run python scripts/query.py "What auth patterns do I use?"
+```
 
-# merge our hooks into your settings (see notes below)
+Codex backend:
+
+```bash
+KB_AGENT_BACKEND=codex uv run python scripts/query.py "What auth patterns do I use?"
+```
+
+Windows PowerShell:
+
+```powershell
+$env:KB_AGENT_BACKEND = "codex"
+uv run python scripts/query.py "What auth patterns do I use?"
+```
+
+Valid values are `claude` and `codex`. The Codex backend runs `codex exec` non-interactively and sends prompts through stdin. Recursive hook execution is prevented by `KB_INVOKED_BY`, which makes the capture hooks exit immediately inside backend child processes.
+
+By default the Codex backend passes `-m gpt-5.3-codex` because older Codex CLI builds can fail when a user config points at a newer model. Override it when your local Codex supports a different model:
+
+```bash
+KB_CODEX_MODEL=gpt-5.5 KB_AGENT_BACKEND=codex uv run python scripts/query.py "What do I know?"
+```
+
+PowerShell:
+
+```powershell
+$env:KB_CODEX_MODEL = "gpt-5.5"
+$env:KB_AGENT_BACKEND = "codex"
+uv run python scripts\query.py "What do I know?"
+```
+
+## Claude Code Setup
+
+Copy or merge the hook config into `~/.claude/settings.json`.
+
+macOS/Linux template:
+
+```bash
 cat .claude/settings.example.json
 ```
 
-Open `~/.claude/settings.json` and add the three hook entries (`SessionStart`, `SessionEnd`, `PreCompact`) from `.claude/settings.example.json`. Replace `/ABSOLUTE/PATH/TO/llm-knowledge-base` with your actual clone path (e.g. `/Users/yourname/llm-knowledge-base`).
+Windows template:
 
-If your `~/.claude/settings.json` already has hooks, **merge** the arrays — don't overwrite. Each hook section accepts a list, so you can append.
+```powershell
+Get-Content .claude\settings.windows.example.json
+```
 
-### 3. Verify
+Replace `/ABSOLUTE/PATH/TO/llm-knowledge-base` or `C:\ABSOLUTE\PATH\TO\llm-knowledge-base` with your real clone path. If you already have hooks, merge arrays instead of overwriting them.
 
-Open a new Claude Code session and check that:
-- The session opens with a "Knowledge Base Index" + "Recent Daily Log" block (means `session-start.py` ran)
-- After ending the session, a new file appears in `kb/daily/YYYY-MM-DD.md` (means `session-end.py` → `flush.py` ran)
+## Codex Setup
 
-If something fails, tail `scripts/flush.log`.
+Codex hooks require the feature flag:
 
----
+```toml
+[features]
+codex_hooks = true
+```
 
-## Daily workflow
+You can copy that from `.codex/config.example.toml` into either:
 
-You don't run anything manually during the day. Here's what happens automatically:
+- `~/.codex/config.toml` for user-wide hooks, or
+- `<repo>/.codex/config.toml` for project-local hooks.
 
-1. **You start a Claude Code session.** `session-start.py` injects the wiki index so Claude knows what you've already learned.
-2. **You work normally.**
-3. **Session ends (or context is auto-compacted).** `session-end.py` / `pre-compact.py` extract the transcript and spawn `flush.py` in the background.
-4. **`flush.py` calls Claude Agent SDK** to summarize the conversation into structured notes and appends them to `kb/daily/YYYY-MM-DD.md`.
-5. **At 17:00, launchd runs `compile-daily.sh`** (see next section), which reads new daily logs and produces wiki articles in `kb/knowledge/concepts/` and `kb/knowledge/connections/`.
+Then copy one hooks template:
 
----
-
-## Automating end-of-day compile (macOS launchd)
-
-The daily compile runs once at 17:00 via launchd. This replaces an older opportunistic trigger that only fired if a session happened to end after 17:00 — fragile, often missed days.
-
-### One-time setup
+macOS/Linux:
 
 ```bash
-cd ~/llm-knowledge-base
+cp .codex/hooks.example.json .codex/hooks.json
+```
 
-# 1) Copy the plist template into your LaunchAgents dir
+Windows:
+
+```powershell
+Copy-Item .codex\hooks.windows.example.json .codex\hooks.json
+```
+
+Replace the placeholder paths with your absolute project path. Project-local hooks only load when the project `.codex/` layer is trusted.
+
+Codex uses:
+
+- `SessionStart` to inject the KB index and recent daily log.
+- `Stop` to capture the transcript and spawn `flush.py`.
+
+## Daily Compile Automation
+
+### macOS Launchd
+
+Copy the plist template and replace the placeholder path:
+
+```bash
 cp scripts/com.user.kb-daily-compile.plist.example \
    ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
 
-# 2) Replace the placeholder path with your real clone path
 sed -i '' "s|/ABSOLUTE/PATH/TO/llm-knowledge-base|$PWD|g" \
    ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
 
-# 3) Load it (requires user-session bootstrap)
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
-
-# 4) (Optional) Run it once right now to verify
 launchctl kickstart gui/$(id -u)/com.user.kb-daily-compile
 tail -f scripts/compile.log
 ```
 
-### Verify it's scheduled
+### Linux Systemd
 
-```bash
-launchctl print gui/$(id -u)/com.user.kb-daily-compile | head -20
-```
-
-Look for a `state = waiting` line — the agent is loaded and waiting for 17:00.
-
-### Change the time
-
-Edit `~/Library/LaunchAgents/com.user.kb-daily-compile.plist`, change the `Hour`/`Minute` values inside `StartCalendarInterval`, then reload:
-
-```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
-```
-
-### Disable / uninstall
-
-```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
-rm ~/Library/LaunchAgents/com.user.kb-daily-compile.plist
-```
-
-### Notes
-
-- launchd **doesn't** wake your Mac. If the laptop is asleep at 17:00, the job runs as soon as it wakes (this is the default behavior — launchd queues missed `StartCalendarInterval` runs).
-- launchd has a minimal environment; that's why `compile-daily.sh` exports `PATH` itself. If `uv` isn't on the path the wrapper sets, edit the script.
-- All output (stdout + stderr) goes to `scripts/compile.log`. That's where you debug.
-
-### Linux (systemd) equivalent
-
-If you're on Linux, use a systemd user timer instead. Create `~/.config/systemd/user/kb-compile.service`:
+Create `~/.config/systemd/user/kb-compile.service`:
 
 ```ini
 [Unit]
@@ -160,7 +187,7 @@ Type=oneshot
 ExecStart=%h/llm-knowledge-base/scripts/compile-daily.sh
 ```
 
-And `~/.config/systemd/user/kb-compile.timer`:
+Create `~/.config/systemd/user/kb-compile.timer`:
 
 ```ini
 [Unit]
@@ -174,16 +201,36 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-Then:
+Enable it:
 
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now kb-compile.timer
 ```
 
----
+### Windows Task Scheduler
 
-## Manual commands
+Dry-run the wrapper:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\compile-daily.ps1 -DryRun
+```
+
+Register the daily task:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\register-windows-task.ps1 -At 17:00
+```
+
+Verify or run it manually:
+
+```powershell
+Get-ScheduledTask -TaskName LLMKnowledgeBaseDailyCompile
+Start-ScheduledTask -TaskName LLMKnowledgeBaseDailyCompile
+Get-Content scripts\compile.log -Tail 80
+```
+
+## Manual Commands
 
 ```bash
 # Compile only logs that changed since last compile
@@ -195,42 +242,66 @@ uv run python scripts/compile.py --all
 # Compile a specific log
 uv run python scripts/compile.py --file kb/daily/2026-04-29.md
 
-# Dry-run (show what would compile without spending tokens)
+# Dry-run
 uv run python scripts/compile.py --dry-run
 
 # Ask the knowledge base a question
 uv run python scripts/query.py "How should I handle auth redirects?"
 
-# Same, but file the answer back as a Q&A article
+# File the answer back into kb/knowledge/qa/
 uv run python scripts/query.py "How does X work?" --file-back
 
-# Lint the wiki (broken links, orphans, contradictions...)
+# Lint the wiki
 uv run python scripts/lint.py
 
-# Lint without LLM checks (free, instant)
+# Free structural lint only
 uv run python scripts/lint.py --structural-only
 ```
 
----
+PowerShell uses the same commands:
+
+```powershell
+uv run python scripts\compile.py --dry-run
+uv run python scripts\query.py "How should I handle auth redirects?"
+uv run python scripts\lint.py --structural-only
+```
+
+## Daily Workflow
+
+1. Start a Claude Code or Codex session.
+2. `session-start.py` injects the current KB index and recent daily log.
+3. Work normally.
+4. The end hook captures the transcript and starts `flush.py` in the background.
+5. `flush.py` writes structured memory to `kb/daily/YYYY-MM-DD.md`.
+6. The daily automation runs `compile.py`, creating or updating articles in `kb/knowledge/`.
+
+## State And Logs
+
+Runtime files are gitignored:
+
+- `scripts/state.json`
+- `scripts/last-flush.json`
+- `scripts/flush.log`
+- `scripts/compile.log`
+- `reports/`
 
 ## Costs
 
-Roughly:
-- **Flush** (per session): ~$0.01–0.05 — small Haiku-class summary
-- **Compile** (per daily log): ~$0.10–0.40 — full Sonnet-class extraction
-- **Query**: ~$0.05–0.20 — depends on wiki size
-- **Lint** (with contradictions check): ~$0.05–0.20
+Costs depend on the selected backend and wiki size.
 
-Token usage is tracked in `scripts/state.json` (`total_cost`). Use `--structural-only` and `--dry-run` to control spend.
+| Operation | Typical cost |
+|-----------|--------------|
+| Flush | Small summary request |
+| Compile | Larger extraction/editing request |
+| Query | Depends on wiki size |
+| Structural lint | Free |
 
----
+Claude backend records SDK-reported cost in `scripts/state.json`. Codex CLI does not currently expose cost through this wrapper, so the state file records `0.0` for those runs.
 
-## Architecture deep-dive
+## Architecture Deep Dive
 
-See `AGENTS.md` for the full schema (daily-log format, article structure, wikilink conventions) — that file is also what the LLM compiler reads as its spec.
-
----
+Read `AGENTS.md` for the daily-log schema, article format, wikilink conventions, hook details, and compiler behavior. Read `CONTEXT.md` for the project vocabulary and boundary decisions.
 
 ## License
 
-MIT — do whatever you want, but no warranty.
+MIT.

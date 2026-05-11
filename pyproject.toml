@@ -1,7 +1,7 @@
 [project]
 name = "llm-knowledge-base"
 version = "0.1.0"
-description = "Personal knowledge base compiled from Claude Code conversations - inspired by Karpathy's LLM KB architecture"
+description = "Personal knowledge base compiled from AI coding sessions - inspired by Karpathy's LLM KB architecture"
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.1.29",
