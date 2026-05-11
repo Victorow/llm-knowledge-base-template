@@ -267,10 +267,21 @@ def _has_toml_mcp_section(text: str) -> bool:
 def _remove_toml_mcp_section(text: str) -> str:
     """Remove the [mcp_servers.llm-knowledge-base] block from TOML text.
 
-    The block ends at the next section header or end of file.
+    Also removes invalid array-style headers left by older buggy installs,
+    e.g. lines like:  ["mcp", "--kb-root", "..."]
     """
-    pattern = rf'\[mcp_servers\.{re.escape(_SERVER_NAME)}\][^\[]*'
-    return re.sub(pattern, '', text, flags=re.DOTALL)
+    # Remove valid [mcp_servers.llm-knowledge-base] section (block until next header)
+    text = re.sub(
+        rf'\[mcp_servers\.{re.escape(_SERVER_NAME)}\][^\[]*',
+        '',
+        text,
+        flags=re.DOTALL,
+    )
+    # Remove leftover invalid TOML lines from old buggy writes, e.g.:
+    #   ["mcp", "--kb-root", "..."]
+    #   ["--kb-root", "...", "mcp"]
+    text = re.sub(r'(?m)^\[\"(?:mcp|--kb-root)[^\]]*\]\s*\n?', '', text)
+    return text
 
 
 def _backup(path: Path) -> Path:
