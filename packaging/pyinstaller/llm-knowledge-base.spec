@@ -13,6 +13,8 @@ hiddenimports += collect_submodules("kb_app")
 hiddenimports += collect_submodules("kb_mcp")
 hiddenimports += ["mcp", "fastmcp", "anyio", "anyio.streams", "anyio.streams.memory"]
 
+ICON = str(ROOT / "packaging" / "icon" / "icon.ico")
+
 a = Analysis(
     [str(ROOT / "kb_app" / "__main__.py")],
     pathex=[str(ROOT)],
@@ -46,6 +48,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
 )
 coll = COLLECT(
     exe,

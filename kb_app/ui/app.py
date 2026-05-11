@@ -154,6 +154,13 @@ class ControlPanelWindow:
         self.window = QtWidgets.QMainWindow()
         self.window.setWindowTitle("LLM Knowledge Base")
         self.window.resize(1100, 720)
+        try:
+            from kb_app.ui.resources.qicon import app_icon
+            icon = app_icon()
+            if icon:
+                self.window.setWindowIcon(icon)
+        except Exception:
+            pass
         self._build()
 
         self._job_running = False

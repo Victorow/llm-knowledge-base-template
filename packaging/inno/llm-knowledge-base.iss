@@ -15,6 +15,7 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+SetupIconFile=..\icon\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Files]
