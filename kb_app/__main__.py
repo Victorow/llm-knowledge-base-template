@@ -14,6 +14,7 @@ from kb_app.diagnostics.export import export_diagnostics
 from kb_app.hooks.commands import capture_hook, render_session_start_json
 from kb_app.jobs.queue import JobStore
 from kb_app.profiles.store import ProfileStore
+from kb_app.ui.app import launch_ui
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,6 +76,13 @@ def main(argv: list[str] | None = None) -> int:
     export_parser = diagnostics_subparsers.add_parser("export")
     export_parser.add_argument("--output", default=None)
 
+    ui_parser = subparsers.add_parser(
+        "ui",
+        help="Launch desktop control panel",
+        description="Launch desktop control panel",
+    )
+    ui_parser.add_argument("--no-tray", action="store_true")
+
     args = parser.parse_args(argv)
     app_paths = resolve_app_paths()
     paths = resolve_kb_paths(Path(args.kb_root))
@@ -131,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
         bundle = export_diagnostics(app_paths, paths, output_dir=output_dir)
         print(f"Diagnostics exported: {bundle}")
         return 0
+
+    if args.command == "ui":
+        return launch_ui(kb_root=paths.root, app_db=db_path, no_tray=args.no_tray)
 
     parser.error("unsupported command")
     return 2
