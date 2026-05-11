@@ -54,6 +54,28 @@ class KbValidationResult:
     root: Path
 
 
+def default_kb_root(
+    *,
+    platform: str | None = None,
+    env: Mapping[str, str] | None = None,
+) -> Path:
+    """Return the default user data directory for the knowledge base.
+
+    This must be separate from the application install directory. Hooks and MCP
+    should point here (or to an explicit profile root), never to the packaged
+    executable folder.
+    """
+    selected_platform = platform or sys.platform
+    selected_env = env or os.environ
+
+    if selected_platform.startswith("win"):
+        user_profile = Path(selected_env.get("USERPROFILE", str(Path.home())))
+        return user_profile / "Documents" / APP_NAME_WINDOWS
+
+    home = Path(selected_env.get("HOME", str(Path.home())))
+    return home / "Documents" / APP_NAME_WINDOWS
+
+
 def resolve_app_paths(
     *,
     platform: str | None = None,
@@ -133,3 +155,62 @@ def validate_kb_root(root: str | Path) -> KbValidationResult:
     }
     missing = [label for label, path in required.items() if not path.exists()]
     return KbValidationResult(valid=not missing, missing=missing, root=root_path)
+
+
+def ensure_kb_layout(root: str | Path) -> KbPaths:
+    """Create a complete KB directory skeleton if it does not exist yet."""
+    paths = resolve_kb_paths(root)
+    for directory in [
+        paths.daily_dir,
+        paths.concepts_dir,
+        paths.connections_dir,
+        paths.qa_dir,
+        paths.scripts_dir,
+        paths.reports_dir,
+    ]:
+        directory.mkdir(parents=True, exist_ok=True)
+
+    if not paths.agents_file.exists():
+        paths.agents_file.write_text(_load_default_agents_text(), encoding="utf-8")
+    if not paths.index_file.exists():
+        paths.index_file.write_text(
+            "# Knowledge Base Index\n\n"
+            "| Article | Summary | Compiled From | Updated |\n"
+            "|---------|---------|---------------|---------|\n",
+            encoding="utf-8",
+        )
+    if not paths.log_file.exists():
+        paths.log_file.write_text("# Build Log\n\n", encoding="utf-8")
+    if not paths.context_file.exists():
+        paths.context_file.write_text(
+            "# Context\n\nPersonal knowledge base managed by LLM Knowledge Base.\n",
+            encoding="utf-8",
+        )
+    return paths
+
+
+def is_same_path(left: str | Path, right: str | Path) -> bool:
+    """Compare two filesystem paths using platform-normalized absolute text."""
+    left_abs = os.path.abspath(os.fspath(left))
+    right_abs = os.path.abspath(os.fspath(right))
+    return os.path.normcase(left_abs) == os.path.normcase(right_abs)
+
+
+def _load_default_agents_text() -> str:
+    candidates = [
+        Path(__file__).resolve().parents[2] / "AGENTS.md",
+        Path(getattr(sys, "_MEIPASS", "")) / "AGENTS.md",
+        Path(sys.executable).resolve().parent / "AGENTS.md",
+        Path(sys.executable).resolve().parent / "_internal" / "AGENTS.md",
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return (
+        "# Personal Knowledge Base Schema\n\n"
+        "This knowledge base stores raw conversation logs in `kb/daily/` and "
+        "compiled wiki articles in `kb/knowledge/`.\n"
+    )

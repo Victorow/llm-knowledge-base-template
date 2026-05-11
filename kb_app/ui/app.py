@@ -17,7 +17,13 @@ from kb_app.core.mcp_setup import (
     mcp_is_configured_claude_code,
     mcp_is_configured_codex,
 )
-from kb_app.core.paths import resolve_app_paths, resolve_kb_paths
+from kb_app.core.paths import (
+    default_kb_root,
+    ensure_kb_layout,
+    is_same_path,
+    resolve_app_paths,
+    resolve_kb_paths,
+)
 from kb_app.jobs.queue import JobStore
 from kb_app.jobs.runner import JobRunner, default_hook_config_path
 from kb_app.profiles.store import ProfileStore
@@ -103,6 +109,32 @@ def format_dashboard_summary(
     return f"{profile_text} | backend: {backend_text} | agent: {agent_status} | last job: {last_job_text}"
 
 
+def normalize_startup_kb_root(
+    *,
+    requested_root: Path,
+    profile_store: ProfileStore,
+    app_paths=None,
+    platform: str | None = None,
+    env: dict[str, str] | None = None,
+) -> Path:
+    """Choose a safe KB root for UI startup and repair install-dir profiles."""
+    resolved_app_paths = app_paths or resolve_app_paths(platform=platform, env=env)
+    fallback_root = default_kb_root(platform=platform, env=env)
+    active = profile_store.get_active_profile()
+
+    if active is not None:
+        active_root = Path(active.root_path)
+        if is_same_path(active_root, resolved_app_paths.install_dir):
+            ensured = ensure_kb_layout(fallback_root)
+            profile_store.update_profile_root(active.id, ensured.root)
+            return ensured.root
+        return ensure_kb_layout(active_root).root
+
+    if not is_same_path(requested_root, resolved_app_paths.install_dir):
+        return ensure_kb_layout(requested_root).root
+    return ensure_kb_layout(fallback_root).root
+
+
 def require_pyside6():
     """Import PySide6 lazily so tests and CLI help do not start Qt."""
     try:
@@ -145,11 +177,15 @@ class ControlPanelWindow:
         QtCore, QtWidgets = require_pyside6()
         self.QtCore = QtCore
         self.QtWidgets = QtWidgets
-        self.kb_root = Path(kb_root)
-        self.kb_paths = resolve_kb_paths(self.kb_root)
         self.app_paths = resolve_app_paths()
         self.profile_store = ProfileStore(Path(app_db))
         self.job_store = JobStore(Path(app_db))
+        self.kb_root = normalize_startup_kb_root(
+            requested_root=Path(kb_root),
+            profile_store=self.profile_store,
+            app_paths=self.app_paths,
+        )
+        self.kb_paths = resolve_kb_paths(self.kb_root)
         self.runner = JobRunner(self.job_store, profile_store=self.profile_store)
 
         self.window = QtWidgets.QMainWindow()
@@ -165,6 +201,7 @@ class ControlPanelWindow:
         self._build()
 
         self._job_running = False
+        self._pending_job_result = None
 
         # Process one queued job every 2 seconds
         self._job_timer = QtCore.QTimer()
@@ -556,19 +593,12 @@ class ControlPanelWindow:
             if not root_input.text().strip():
                 error_lbl.setText("Escolha uma pasta para a base de conhecimento.")
                 return
-            # Create directory structure
-            for sub in [
-                "kb/daily",
-                "kb/knowledge/concepts",
-                "kb/knowledge/connections",
-                "kb/knowledge/qa",
-            ]:
-                (root / sub).mkdir(parents=True, exist_ok=True)
-            profile_id = self.profile_store.create_profile(name, str(root))
+            paths = ensure_kb_layout(root)
+            profile_id = self.profile_store.create_profile(name, str(paths.root))
             self.profile_store.set_active_profile(profile_id)
             # Update kb_root so the window reflects the new profile
-            self.kb_root = root
-            self.kb_paths = resolve_kb_paths(root)
+            self.kb_root = paths.root
+            self.kb_paths = paths
             dialog.accept()
 
         create_btn.clicked.connect(create)
@@ -590,7 +620,7 @@ class ControlPanelWindow:
                             return Path(val)
             except OSError:
                 pass
-        return Path.home() / "Documents" / "LLM Knowledge Base"
+        return default_kb_root()
 
     # ------------------------------------------------------------------
     # Hooks page
@@ -626,6 +656,12 @@ class ControlPanelWindow:
         self.enqueue_action(action, {"client": client})
 
     def _tick(self) -> None:
+        # Check if a background worker finished and deliver the result on the main thread
+        pending = self._pending_job_result
+        if pending is not None:
+            self._pending_job_result = None
+            self._on_job_done(*pending)
+
         if self._job_running:
             return
         # Peek at queue to show meaningful status without blocking
@@ -654,7 +690,6 @@ class ControlPanelWindow:
         self.bottom_bar.setText(status_msg)
 
         self._job_running = True
-        QtCore = self.QtCore
 
         def worker():
             result = None
@@ -665,7 +700,7 @@ class ControlPanelWindow:
                 error = exc
             finally:
                 self._job_running = False
-            QtCore.QTimer.singleShot(0, lambda: self._on_job_done(result, error))
+                self._pending_job_result = (result, error)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -830,9 +865,12 @@ class ControlPanelWindow:
     def create_profile(self) -> None:
         name = self.profile_name_input.text().strip() or "Personal"
         root = self.profile_root_input.text().strip() or str(self.kb_root)
-        profile_id = self.profile_store.create_profile(name, root)
+        paths = ensure_kb_layout(root)
+        profile_id = self.profile_store.create_profile(name, paths.root)
         if self.profile_store.get_active_profile() is None:
             self.profile_store.set_active_profile(profile_id)
+            self.kb_root = paths.root
+            self.kb_paths = paths
         self.refresh_profiles()
 
     def activate_selected_profile(self) -> None:

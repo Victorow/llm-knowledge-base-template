@@ -18,11 +18,23 @@ Configure in Claude Code (claude_desktop_config.json):
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from kb_app.core.mcp_setup import (
+    configure_mcp,
+    configure_mcp_claude_code,
+    configure_mcp_codex,
+    mcp_is_configured,
+    mcp_is_configured_claude_code,
+    mcp_is_configured_codex,
+    remove_mcp,
+    remove_mcp_claude_code,
+    remove_mcp_codex,
+)
 from kb_app.core.operations import (
     append_manual_memory,
     compile_logs,
@@ -30,20 +42,76 @@ from kb_app.core.operations import (
     run_query,
     run_structural_lint,
 )
-from kb_app.core.paths import resolve_kb_paths
+from kb_app.core.paths import ensure_kb_layout, is_same_path, resolve_kb_paths
 from kb_app.core.wiki import list_wiki_articles, read_wiki_index
 from kb_app.diagnostics.export import export_diagnostics
 from kb_app.hooks.commands import build_session_context
 from kb_app.core.paths import resolve_app_paths
+from kb_app.jobs.queue import JobStore
+from kb_app.jobs.runner import JobRunner
+from kb_app.profiles.store import ProfileStore
+from kb_app.ui.app import ACTION_TO_JOB_TYPE
 
 mcp = FastMCP("llm-knowledge-base")
+MCP_UI_JOB_ACTIONS = dict(ACTION_TO_JOB_TYPE)
 
 # kb_root is set once at server startup via --kb-root CLI arg
 _kb_root: Path = Path.cwd()
+_app_db_path: Path | None = None
 
 
 def _paths():
     return resolve_kb_paths(_kb_root)
+
+
+def _app_db() -> Path:
+    return _app_db_path or resolve_app_paths().db_path
+
+
+def _profile_store() -> ProfileStore:
+    return ProfileStore(_app_db())
+
+
+def _job_store() -> JobStore:
+    return JobStore(_app_db())
+
+
+def _active_profile_id() -> int:
+    store = _profile_store()
+    root = ensure_kb_layout(_kb_root).root
+    active = store.get_active_profile()
+    if active is None:
+        profile_id = store.create_profile("MCP KB", root)
+        store.set_active_profile(profile_id)
+        return profile_id
+    if not is_same_path(active.root_path, root):
+        store.update_profile_root(active.id, root)
+    return store.get_active_profile().id
+
+
+def _run_ui_action(action: str, payload: dict | None = None, *, run_now: bool = True) -> str:
+    if action not in MCP_UI_JOB_ACTIONS:
+        known = ", ".join(sorted(MCP_UI_JOB_ACTIONS))
+        return f"Unsupported UI action '{action}'. Known actions: {known}"
+
+    jobs = _job_store()
+    profile_id = _active_profile_id()
+    job_id = jobs.enqueue(
+        profile_id=profile_id,
+        job_type=MCP_UI_JOB_ACTIONS[action],
+        payload=payload or {},
+        priority=0,
+    )
+    if not run_now:
+        return f"Queued job {job_id}: {MCP_UI_JOB_ACTIONS[action]}"
+
+    result = JobRunner(jobs, profile_store=_profile_store()).run_next()
+    record = jobs.get_job(job_id)
+    if result.job_id != job_id:
+        return f"Queued job {job_id}; ran queued job {result.job_id} with status {result.status}."
+    if record.status == "succeeded":
+        return f"Job {job_id} succeeded: {json.dumps(record.result, ensure_ascii=False)}"
+    return f"Job {job_id} {record.status}: {record.error_message or record.result}"
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +124,8 @@ def kb_get_context() -> str:
     """Return the current KB context: wiki index + recent daily log.
 
     This is the same context injected into AI sessions by the session-start hook.
-    Use it to understand what the knowledge base currently contains.
+    Use it to understand what the knowledge base currently contains instead
+    of opening PowerShell/cmd just to inspect local context.
     """
     paths = _paths()
     return build_session_context(paths)
@@ -315,13 +384,197 @@ def kb_pending_logs() -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
+def kb_ui_actions() -> str:
+    """List every UI action that can also be executed through MCP."""
+    lines = ["UI actions exposed through MCP:"]
+    for action, job_type in sorted(MCP_UI_JOB_ACTIONS.items()):
+        lines.append(f"- {action} -> {job_type}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def kb_profiles_list() -> str:
+    """List KB profiles configured in the desktop app."""
+    profiles = _profile_store().list_profiles()
+    if not profiles:
+        return "No KB profiles configured."
+    lines = []
+    for profile in profiles:
+        marker = "*" if profile.active else " "
+        lines.append(f"{marker} {profile.id}: {profile.name} [{profile.backend}] {profile.root_path}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def kb_profile_create(
+    name: str,
+    root_path: str,
+    backend: str = "claude",
+    activate: bool = True,
+) -> str:
+    """Create a KB profile, bootstrap its directory layout, and optionally activate it."""
+    paths = ensure_kb_layout(root_path)
+    store = _profile_store()
+    profile_id = store.create_profile(name, paths.root, backend=backend)
+    if activate:
+        store.set_active_profile(profile_id)
+    return f"Profile created: {profile_id} -> {paths.root}"
+
+
+@mcp.tool()
+def kb_profile_activate(profile_id: int) -> str:
+    """Activate an existing KB profile."""
+    _profile_store().set_active_profile(profile_id)
+    return f"Activated profile {profile_id}"
+
+
+@mcp.tool()
+def kb_jobs_list(limit: int = 20) -> str:
+    """List recent background jobs from the desktop app queue."""
+    jobs = _job_store()
+    with jobs._connection() as conn:
+        rows = conn.execute(
+            "SELECT id, job_type, status, created_at FROM jobs ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    if not rows:
+        return "No jobs found."
+    return "\n".join(
+        f"{row['id']} | {row['status']} | {row['job_type']} | {row['created_at']}"
+        for row in rows
+    )
+
+
+@mcp.tool()
+def kb_job_run_next() -> str:
+    """Run the next queued desktop background job."""
+    result = JobRunner(_job_store(), profile_store=_profile_store()).run_next()
+    return f"Runner result: {result.status} ({result.job_id or 'no job'})"
+
+
+@mcp.tool()
+def kb_job_cancel(job_id: str) -> str:
+    """Request cancellation for a queued/running desktop job."""
+    _job_store().request_cancel(job_id)
+    return f"Cancellation requested for job {job_id}"
+
+
+@mcp.tool()
+def kb_enqueue_ui_action(action: str, payload_json: str = "{}", run_now: bool = False) -> str:
+    """Queue any desktop UI action by name.
+
+    Use kb_ui_actions first to see supported actions. payload_json must be a JSON object.
+    """
+    payload = json.loads(payload_json)
+    if not isinstance(payload, dict):
+        return "payload_json must decode to a JSON object."
+    return _run_ui_action(action, payload, run_now=run_now)
+
+
+@mcp.tool()
+def kb_install_hooks(
+    client: str,
+    config_path: str | None = None,
+    backup_dir: str | None = None,
+    executable: str | None = None,
+) -> str:
+    """Install Claude Code or Codex capture hooks through the same UI job runner."""
+    payload = {"client": client}
+    if config_path:
+        payload["config_path"] = config_path
+    if backup_dir:
+        payload["backup_dir"] = backup_dir
+    if executable:
+        payload["executable"] = executable
+    return _run_ui_action("install_hooks", payload)
+
+
+@mcp.tool()
+def kb_repair_hooks(client: str) -> str:
+    """Repair Claude Code or Codex capture hooks."""
+    return _run_ui_action("repair_hooks", {"client": client})
+
+
+@mcp.tool()
+def kb_remove_hooks(client: str) -> str:
+    """Remove this app's marked capture hooks from Claude Code or Codex."""
+    return _run_ui_action("remove_hooks", {"client": client})
+
+
+@mcp.tool()
+def kb_backend_smoke_test() -> str:
+    """Run the backend smoke test exposed by the UI."""
+    return _run_ui_action("backend_smoke_test", {})
+
+
+@mcp.tool()
+def kb_flush_test() -> str:
+    """Run the flush test exposed by the UI."""
+    return _run_ui_action("flush_test", {})
+
+
+@mcp.tool()
+def kb_install_autostart() -> str:
+    """Install user-session autostart for the desktop control panel."""
+    return _run_ui_action("install_autostart", {})
+
+
+@mcp.tool()
+def kb_remove_autostart() -> str:
+    """Remove user-session autostart for the desktop control panel."""
+    return _run_ui_action("remove_autostart", {})
+
+
+@mcp.tool()
+def kb_configure_daily_schedule(enabled: bool = True, time: str = "17:00") -> str:
+    """Configure the daily compile setting exposed by the UI."""
+    return _run_ui_action("configure_daily_schedule", {"enabled": enabled, "time": time})
+
+
+@mcp.tool()
+def kb_configure_mcp(
+    client: str = "both",
+    remove: bool = False,
+    exe_path: str | None = None,
+) -> str:
+    """Configure or remove this MCP server for Claude Code/Claude Desktop and/or Codex."""
+    exe = Path(exe_path) if exe_path else None
+    lines: list[str] = []
+    if client in ("claude", "both"):
+        if remove:
+            lines.append(f"Claude Desktop removed: {remove_mcp()}")
+            lines.append(f"Claude Code removed: {remove_mcp_claude_code()}")
+        else:
+            lines.append(f"Claude Desktop configured: {configure_mcp(_kb_root, exe_path=exe)}")
+            lines.append(f"Claude Code configured: {configure_mcp_claude_code(_kb_root, exe_path=exe)}")
+    if client in ("codex", "both"):
+        if remove:
+            lines.append(f"Codex removed: {remove_mcp_codex()}")
+        else:
+            lines.append(f"Codex configured: {configure_mcp_codex(_kb_root, exe_path=exe)}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def kb_mcp_status() -> str:
+    """Return MCP configuration status for Claude Desktop, Claude Code CLI, and Codex."""
+    return "\n".join(
+        [
+            f"Claude Desktop MCP: {'yes' if mcp_is_configured() else 'no'}",
+            f"Claude Code MCP: {'yes' if mcp_is_configured_claude_code() else 'no'}",
+            f"Codex MCP: {'yes' if mcp_is_configured_codex() else 'no'}",
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _kb_root
+    global _app_db_path, _kb_root
 
     parser = argparse.ArgumentParser(
         prog="kb_mcp",
@@ -338,9 +591,15 @@ def main(argv: list[str] | None = None) -> int:
         choices=["stdio", "sse"],
         help="MCP transport protocol (default: stdio)",
     )
+    parser.add_argument(
+        "--app-db",
+        default=None,
+        help="Desktop app SQLite database path",
+    )
 
     args = parser.parse_args(argv)
     _kb_root = Path(args.kb_root).resolve()
+    _app_db_path = Path(args.app_db) if args.app_db else None
 
     mcp.run(transport=args.transport)
     return 0

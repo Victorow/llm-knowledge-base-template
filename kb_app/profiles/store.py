@@ -103,6 +103,14 @@ class ProfileStore:
                 (now, profile_id),
             )
 
+    def update_profile_root(self, profile_id: int, root_path: str | Path) -> None:
+        self.get_profile(profile_id)
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE kb_profiles SET root_path = ?, updated_at = ? WHERE id = ?",
+                (str(root_path), utc_now(), profile_id),
+            )
+
     def get_active_profile(self) -> KbProfile | None:
         with self._connection() as conn:
             row = conn.execute(

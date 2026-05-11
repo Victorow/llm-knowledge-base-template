@@ -140,6 +140,32 @@ class InstallHooksExecutableTests(unittest.TestCase):
                 f"Expected {fake_exe!r} in all commands, got: {all_commands}",
             )
 
+    def test_source_mode_prefers_installed_exe_over_bare_exe_name(self) -> None:
+        from kb_app.jobs.runner import resolve_hook_command_prefix
+        from kb_app.core.paths import AppPaths
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            exe = base / "Programs" / "LLM Knowledge Base" / "LLMKnowledgeBase.exe"
+            exe.parent.mkdir(parents=True)
+            exe.touch()
+            app_paths = AppPaths(
+                config_dir=base / "config",
+                state_dir=base / "state",
+                install_dir=exe.parent,
+                config_file=base / "config.toml",
+                db_path=base / "app.db",
+                logs_dir=base / "logs",
+                job_logs_dir=base / "job-logs",
+                backups_dir=base / "backups",
+                diagnostics_dir=base / "diagnostics",
+            )
+
+            prefix = resolve_hook_command_prefix(app_paths=app_paths)
+
+            self.assertIn(str(exe), prefix)
+            self.assertNotEqual(prefix, "LLMKnowledgeBase.exe")
+
 
 class HookCommandExitCodeTests(unittest.TestCase):
     """Validate that hook subcommands exit with code 0 via the module entrypoint."""

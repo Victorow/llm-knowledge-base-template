@@ -19,7 +19,10 @@ a = Analysis(
     [str(ROOT / "kb_app" / "__main__.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[],
+    datas=[
+        (str(ROOT / "AGENTS.md"), "."),
+        (str(ROOT / "CONTEXT.md"), "."),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

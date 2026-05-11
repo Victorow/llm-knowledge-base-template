@@ -22,7 +22,7 @@ from kb_app.core.mcp_setup import (
     remove_mcp_codex,
 )
 from kb_app.core.operations import compile_logs, run_lint, run_query
-from kb_app.core.paths import resolve_app_paths
+from kb_app.core.paths import default_kb_root, resolve_app_paths
 from kb_app.core.paths import resolve_kb_paths
 from kb_app.diagnostics.export import export_diagnostics
 from kb_app.hooks.commands import capture_hook, render_session_start_json
@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="llm-knowledge-base")
     parser.add_argument(
         "--kb-root",
-        default=str(Path.cwd()),
+        default=None,
         help="Knowledge base root directory",
     )
     parser.add_argument(
@@ -148,7 +148,10 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     app_paths = resolve_app_paths()
-    paths = resolve_kb_paths(Path(args.kb_root))
+    raw_kb_root = Path(args.kb_root) if args.kb_root else (
+        default_kb_root() if args.command == "ui" else Path.cwd()
+    )
+    paths = resolve_kb_paths(raw_kb_root)
     db_path = Path(args.app_db) if args.app_db else app_paths.db_path
 
     if args.command == "hook":
@@ -221,7 +224,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "mcp":
         from kb_mcp.server import main as mcp_main
-        return mcp_main(["--kb-root", str(paths.root), "--transport", args.transport])
+        return mcp_main([
+            "--kb-root",
+            str(paths.root),
+            "--transport",
+            args.transport,
+            "--app-db",
+            str(db_path),
+        ])
 
     if args.command == "setup-mcp":
         return _handle_setup_mcp(args, paths.root)

@@ -113,13 +113,14 @@ end;
 { ------------------------------------------------------------------ }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  KbRoot, DailyDir, KnowledgeDir: String;
+  KbRoot, DailyDir, KnowledgeDir, InternalDir: String;
 begin
   if CurStep = ssPostInstall then
   begin
     KbRoot      := KbRootPage.Values[0];
     DailyDir    := KbRoot + '\kb\daily';
     KnowledgeDir := KbRoot + '\kb\knowledge\concepts';
+    InternalDir := ExpandConstant('{app}\_internal');
 
     if not DirExists(KbRoot) then
       CreateDir(KbRoot);
@@ -135,5 +136,43 @@ begin
       CreateDir(KbRoot + '\kb\knowledge\connections');
     if not DirExists(KbRoot + '\kb\knowledge\qa') then
       CreateDir(KbRoot + '\kb\knowledge\qa');
+
+    if not FileExists(KbRoot + '\AGENTS.md') then
+    begin
+      if FileExists(InternalDir + '\AGENTS.md') then
+        FileCopy(InternalDir + '\AGENTS.md', KbRoot + '\AGENTS.md', False)
+      else
+        SaveStringToFile(KbRoot + '\AGENTS.md',
+          '# Personal Knowledge Base Schema' + #13#10 + #13#10 +
+          'Daily logs live in kb/daily and compiled wiki articles live in kb/knowledge.' + #13#10,
+          False);
+    end;
+
+    if not FileExists(KbRoot + '\CONTEXT.md') then
+    begin
+      if FileExists(InternalDir + '\CONTEXT.md') then
+        FileCopy(InternalDir + '\CONTEXT.md', KbRoot + '\CONTEXT.md', False)
+      else
+        SaveStringToFile(KbRoot + '\CONTEXT.md',
+          '# Context' + #13#10 + #13#10 +
+          'Personal knowledge base managed by LLM Knowledge Base.' + #13#10,
+          False);
+    end;
+
+    if not FileExists(KbRoot + '\kb\knowledge\index.md') then
+      SaveStringToFile(KbRoot + '\kb\knowledge\index.md',
+        '# Knowledge Base Index' + #13#10 + #13#10 +
+        '| Article | Summary | Compiled From | Updated |' + #13#10 +
+        '|---------|---------|---------------|---------|' + #13#10,
+        False);
+
+    if not FileExists(KbRoot + '\kb\knowledge\log.md') then
+      SaveStringToFile(KbRoot + '\kb\knowledge\log.md',
+        '# Build Log' + #13#10 + #13#10,
+        False);
+
+    SaveStringToFile(ExpandConstant('{app}\.install-config'),
+      'KB_ROOT=' + KbRoot + #13#10,
+      False);
   end;
 end;
