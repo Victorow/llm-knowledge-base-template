@@ -225,8 +225,9 @@ def build_hook_groups(*, client: str, executable: str, kb_root: Path) -> dict[st
     if client == "claude":
         return {
             "SessionStart": [_hook_group("", command("session-start"), 15)],
-            "SessionEnd": [_hook_group("", command("session-end"), 10)],
-            "PreCompact": [_hook_group("", command("pre-compact"), 10)],
+            "SessionEnd":   [_hook_group("", command("session-end"), 10)],
+            "PreCompact":   [_hook_group("", command("pre-compact"), 10)],
+            "PostCompact":  [_hook_group("", command("post-compact"), 30)],
         }
     if client == "codex":
         return {

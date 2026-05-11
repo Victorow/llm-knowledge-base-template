@@ -18,7 +18,6 @@ from kb_app.core.mcp_setup import (
     mcp_is_configured_codex,
 )
 from kb_app.core.paths import resolve_app_paths, resolve_kb_paths
-from kb_app.diagnostics.export import export_diagnostics
 from kb_app.jobs.queue import JobStore
 from kb_app.jobs.runner import JobRunner, default_hook_config_path
 from kb_app.profiles.store import ProfileStore
@@ -734,15 +733,40 @@ class ControlPanelWindow:
 
     def _settings_controls(self, layout):
         QtWidgets = self.QtWidgets
-        self.daily_compile_checkbox = QtWidgets.QCheckBox("Daily compile")
-        self.daily_compile_time = QtWidgets.QLineEdit("17:00")
-        layout.addWidget(self.daily_compile_checkbox)
-        layout.addWidget(self.daily_compile_time)
-        row = QtWidgets.QHBoxLayout()
-        layout.addLayout(row)
-        self._button(row, "Save Scheduler", self.save_scheduler_settings)
-        self._button(row, "Install Autostart", lambda: self.enqueue_action("install_autostart"))
-        self._button(row, "Remove Autostart", lambda: self.enqueue_action("remove_autostart"))
+
+        compile_group = QtWidgets.QGroupBox("Compilação automática")
+        cg_layout = QtWidgets.QVBoxLayout(compile_group)
+
+        daily_row = QtWidgets.QHBoxLayout()
+        self.daily_compile_checkbox = QtWidgets.QCheckBox("Compilar diariamente")
+        self.daily_compile_time = QtWidgets.QLineEdit(
+            self.profile_store.get_setting("daily_compile_time", "17:00")
+        )
+        self.daily_compile_time.setFixedWidth(70)
+        self.daily_compile_checkbox.setChecked(
+            bool(self.profile_store.get_setting("daily_compile_enabled", False))
+        )
+        daily_row.addWidget(self.daily_compile_checkbox)
+        daily_row.addWidget(QtWidgets.QLabel("às"))
+        daily_row.addWidget(self.daily_compile_time)
+        daily_row.addStretch(1)
+        cg_layout.addLayout(daily_row)
+
+        self.compile_on_compact_checkbox = QtWidgets.QCheckBox(
+            "Compilar após compactação de contexto (PostCompact — Claude Code)"
+        )
+        self.compile_on_compact_checkbox.setChecked(
+            bool(self.profile_store.get_setting("compile_on_compact", False))
+        )
+        cg_layout.addWidget(self.compile_on_compact_checkbox)
+
+        layout.addWidget(compile_group)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        layout.addLayout(btn_row)
+        self._button(btn_row, "Salvar Configurações", self.save_scheduler_settings)
+        self._button(btn_row, "Install Autostart", lambda: self.enqueue_action("install_autostart"))
+        self._button(btn_row, "Remove Autostart", lambda: self.enqueue_action("remove_autostart"))
 
     def _diagnostics_controls(self, layout):
         row = self.QtWidgets.QHBoxLayout()
@@ -819,6 +843,10 @@ class ControlPanelWindow:
         self.bottom_bar.setText("Daily compile enabled")
 
     def save_scheduler_settings(self) -> None:
+        self.profile_store.set_setting(
+            "compile_on_compact",
+            self.compile_on_compact_checkbox.isChecked(),
+        )
         self.enqueue_action(
             "configure_daily_schedule",
             {
@@ -828,8 +856,7 @@ class ControlPanelWindow:
         )
 
     def export_diagnostics_now(self) -> None:
-        bundle = export_diagnostics(self.app_paths, self.kb_paths)
-        self.bottom_bar.setText(f"Diagnostics exported: {bundle}")
+        self.enqueue_action("diagnostics_export", {})
 
     def cancel_selected_job(self) -> None:
         item = self.jobs_list.currentItem()

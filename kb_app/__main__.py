@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     hook_parser = subparsers.add_parser("hook", help="Run AI-client hook command")
     hook_parser.add_argument(
         "hook_event",
-        choices=["session-start", "session-end", "pre-compact"],
+        choices=["session-start", "session-end", "pre-compact", "post-compact"],
     )
 
     profiles_parser = subparsers.add_parser("profiles", help="Manage KB profiles")
@@ -160,6 +160,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.hook_event == "pre-compact":
             capture_hook(sys.stdin.read(), paths, min_turns=5, context_prefix="flush-context")
+            return 0
+        if args.hook_event == "post-compact":
+            sys.stdin.read()  # drain stdin (Claude Code may send compaction metadata)
+            store = ProfileStore(db_path)
+            if store.get_setting("compile_on_compact", False):
+                profile = store.get_active_profile()
+                if profile is not None:
+                    JobStore(db_path).enqueue(
+                        profile_id=profile.id,
+                        job_type="compile_changed",
+                        payload={},
+                        priority=90,
+                    )
             return 0
 
     if args.command == "profiles":
