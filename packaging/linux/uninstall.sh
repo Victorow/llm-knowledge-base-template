@@ -1,11 +1,39 @@
 #!/usr/bin/env sh
+# LLM Knowledge Base — Linux uninstaller
+# Removes app files; never deletes your KB data.
+
 set -eu
 
 APP_DIR="${HOME}/Applications/llm-knowledge-base"
 DESKTOP_FILE="${HOME}/.local/share/applications/llm-knowledge-base.desktop"
+AUTOSTART_FILE="${HOME}/.config/autostart/llm-knowledge-base.desktop"
 BIN_FILE="${HOME}/.local/bin/llm-knowledge-base"
 
-rm -rf "${APP_DIR}"
-rm -f "${DESKTOP_FILE}" "${BIN_FILE}"
+echo ""
+echo "  LLM Knowledge Base — Uninstaller"
+echo "  =================================="
+echo ""
+echo "  This will remove the app, but NOT your KB data folder."
+echo ""
 
-echo "Removed LLM Knowledge Base app files. KB data was not deleted."
+# Remove MCP entry from Claude Code before deleting the exe
+EXE="${APP_DIR}/LLMKnowledgeBase"
+if [ -f "${EXE}" ]; then
+    echo "  Removing Claude Code MCP integration..."
+    "${EXE}" setup-mcp --remove 2>/dev/null \
+        && echo "  MCP entry removed." \
+        || echo "  Warning: could not remove MCP entry automatically."
+fi
+
+echo "  Removing app files..."
+rm -rf "${APP_DIR}"
+rm -f "${DESKTOP_FILE}" "${AUTOSTART_FILE}" "${BIN_FILE}"
+
+# Refresh desktop menu
+command -v xdg-desktop-menu >/dev/null 2>&1 \
+    && xdg-desktop-menu forceupdate 2>/dev/null || true
+
+echo ""
+echo "  ✓ LLM Knowledge Base removed."
+echo "  Your KB data was not deleted."
+echo ""

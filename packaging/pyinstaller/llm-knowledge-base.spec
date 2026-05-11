@@ -10,6 +10,8 @@ block_cipher = None
 
 hiddenimports = ["PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets"]
 hiddenimports += collect_submodules("kb_app")
+hiddenimports += collect_submodules("kb_mcp")
+hiddenimports += ["mcp", "fastmcp", "anyio", "anyio.streams", "anyio.streams.memory"]
 
 a = Analysis(
     [str(ROOT / "kb_app" / "__main__.py")],

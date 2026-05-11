@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from kb_app.core.mcp_setup import configure_mcp, find_claude_config, mcp_is_configured, remove_mcp
 from kb_app.core.operations import compile_logs, run_lint, run_query
 from kb_app.core.paths import resolve_app_paths
 from kb_app.core.paths import resolve_kb_paths
@@ -83,6 +84,39 @@ def main(argv: list[str] | None = None) -> int:
     )
     ui_parser.add_argument("--no-tray", action="store_true")
 
+    mcp_parser = subparsers.add_parser("mcp", help="Start MCP server (stdio)")
+    mcp_parser.add_argument(
+        "--transport",
+        default="stdio",
+        choices=["stdio", "sse"],
+        help="MCP transport (default: stdio)",
+    )
+
+    setup_mcp_parser = subparsers.add_parser(
+        "setup-mcp",
+        help="Configure MCP server in Claude Code's config file",
+    )
+    setup_mcp_parser.add_argument(
+        "--exe-path",
+        default=None,
+        help="Path to LLMKnowledgeBase.exe (uses packaged exe instead of uv)",
+    )
+    setup_mcp_parser.add_argument(
+        "--claude-config",
+        default=None,
+        help="Override the Claude config file path",
+    )
+    setup_mcp_parser.add_argument(
+        "--remove",
+        action="store_true",
+        help="Remove the MCP entry instead of adding it",
+    )
+    setup_mcp_parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print whether MCP is already configured and exit",
+    )
+
     args = parser.parse_args(argv)
     app_paths = resolve_app_paths()
     paths = resolve_kb_paths(Path(args.kb_root))
@@ -143,6 +177,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ui":
         return launch_ui(kb_root=paths.root, app_db=db_path, no_tray=args.no_tray)
 
+    if args.command == "mcp":
+        from kb_mcp.server import main as mcp_main
+        return mcp_main(["--kb-root", str(paths.root), "--transport", args.transport])
+
+    if args.command == "setup-mcp":
+        return _handle_setup_mcp(args, paths.root)
+
     parser.error("unsupported command")
     return 2
 
@@ -167,6 +208,32 @@ def _handle_profiles(args: argparse.Namespace, db_path: Path) -> int:
         print(f"Activated profile {args.profile_id}")
         return 0
     return 2
+
+
+def _handle_setup_mcp(args: argparse.Namespace, kb_root: Path) -> int:
+    claude_config = Path(args.claude_config) if args.claude_config else None
+
+    if args.status:
+        configured = mcp_is_configured(config_path=claude_config)
+        detected = find_claude_config()
+        print(f"Claude config: {claude_config or detected}")
+        print(f"MCP configured: {'yes' if configured else 'no'}")
+        return 0
+
+    if args.remove:
+        result = remove_mcp(config_path=claude_config)
+        if result:
+            print(f"MCP entry removed from: {result}")
+        else:
+            print("MCP entry not found — nothing to remove.")
+        return 0
+
+    exe_path = Path(args.exe_path) if args.exe_path else None
+    config_path = configure_mcp(kb_root, exe_path=exe_path, config_path=claude_config)
+    print(f"MCP configured in: {config_path}")
+    print(f"KB root: {kb_root}")
+    print("Restart Claude Code to activate the MCP server.")
+    return 0
 
 
 def _handle_jobs(args: argparse.Namespace, db_path: Path) -> int:
