@@ -34,13 +34,34 @@ class PackagingFilesTests(unittest.TestCase):
         self.assertNotIn(".claude", content)
         self.assertNotIn(".codex", content)
 
+    def test_packaged_app_carries_schema_and_installer_bootstraps_kb(self) -> None:
+        root = Path(__file__).resolve().parent.parent
+        spec = (root / "packaging" / "pyinstaller" / "llm-knowledge-base.spec").read_text(
+            encoding="utf-8"
+        )
+        inno = (root / "packaging" / "inno" / "llm-knowledge-base.iss").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("AGENTS.md", spec)
+        self.assertIn("CONTEXT.md", spec)
+        self.assertNotIn('"fastmcp"', spec)
+        self.assertIn(".install-config", inno)
+        self.assertIn("AGENTS.md", inno)
+        self.assertIn("index.md", inno)
+        self.assertIn("log.md", inno)
+
     def test_linux_installer_uses_user_directories(self) -> None:
         root = Path(__file__).resolve().parent.parent
         content = (root / "packaging" / "linux" / "install.sh").read_text(encoding="utf-8")
 
         self.assertIn("${HOME}/Applications/llm-knowledge-base", content)
         self.assertIn("${HOME}/.local/share/applications", content)
+        self.assertIn("AGENTS.md", content)
+        self.assertIn("index.md", content)
+        self.assertIn("log.md", content)
         self.assertNotIn("sudo", content)
+        self.assertNotIn("${SKIP_MCP}", content)
 
     def test_smoke_packaged_python_module_mode(self) -> None:
         root = Path(__file__).resolve().parent.parent

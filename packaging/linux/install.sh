@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # LLM Knowledge Base — Linux installer
-# Installs to user directories only; no sudo required.
+# Installs to user directories only; no root privileges required.
 #
 # Usage:
 #   sh install.sh [BUILD_DIR] [options]
@@ -191,6 +191,47 @@ mkdir -p \
     "${KB_ROOT}/kb/knowledge/connections" \
     "${KB_ROOT}/kb/knowledge/qa"
 
+INTERNAL_DIR="${APP_DIR}/_internal"
+if [ ! -f "${KB_ROOT}/AGENTS.md" ]; then
+    if [ -f "${INTERNAL_DIR}/AGENTS.md" ]; then
+        cp "${INTERNAL_DIR}/AGENTS.md" "${KB_ROOT}/AGENTS.md"
+    else
+        cat > "${KB_ROOT}/AGENTS.md" <<EOF
+# Personal Knowledge Base Schema
+
+Daily logs live in kb/daily and compiled wiki articles live in kb/knowledge.
+EOF
+    fi
+fi
+
+if [ ! -f "${KB_ROOT}/CONTEXT.md" ]; then
+    if [ -f "${INTERNAL_DIR}/CONTEXT.md" ]; then
+        cp "${INTERNAL_DIR}/CONTEXT.md" "${KB_ROOT}/CONTEXT.md"
+    else
+        cat > "${KB_ROOT}/CONTEXT.md" <<EOF
+# Context
+
+Personal knowledge base managed by LLM Knowledge Base.
+EOF
+    fi
+fi
+
+if [ ! -f "${KB_ROOT}/kb/knowledge/index.md" ]; then
+    cat > "${KB_ROOT}/kb/knowledge/index.md" <<EOF
+# Knowledge Base Index
+
+| Article | Summary | Compiled From | Updated |
+|---------|---------|---------------|---------|
+EOF
+fi
+
+if [ ! -f "${KB_ROOT}/kb/knowledge/log.md" ]; then
+    cat > "${KB_ROOT}/kb/knowledge/log.md" <<EOF
+# Build Log
+
+EOF
+fi
+
 # ---------------------------------------------------------------------------
 # Write .desktop entry (application menu / file manager integration)
 # ---------------------------------------------------------------------------
@@ -235,21 +276,21 @@ fi
 if [ "${SKIP_CLAUDE_MCP}" = "0" ]; then
     echo "  Configuring Claude Code MCP integration..."
     "${APP_DIR}/LLMKnowledgeBase" \
+        --kb-root "${KB_ROOT}" \
         setup-mcp --client claude \
         --exe-path "${APP_DIR}/LLMKnowledgeBase" \
-        --kb-root "${KB_ROOT}" \
         2>/dev/null && echo "  Claude MCP configured." \
-        || echo "  Warning: could not configure Claude MCP. Run 'llm-knowledge-base setup-mcp --client claude --kb-root \"${KB_ROOT}\"' manually."
+        || echo "  Warning: could not configure Claude MCP. Run 'llm-knowledge-base --kb-root \"${KB_ROOT}\" setup-mcp --client claude' manually."
 fi
 
 if [ "${SKIP_CODEX_MCP}" = "0" ]; then
     echo "  Configuring Codex MCP integration..."
     "${APP_DIR}/LLMKnowledgeBase" \
+        --kb-root "${KB_ROOT}" \
         setup-mcp --client codex \
         --exe-path "${APP_DIR}/LLMKnowledgeBase" \
-        --kb-root "${KB_ROOT}" \
         2>/dev/null && echo "  Codex MCP configured." \
-        || echo "  Warning: could not configure Codex MCP. Run 'llm-knowledge-base setup-mcp --client codex --kb-root \"${KB_ROOT}\"' manually."
+        || echo "  Warning: could not configure Codex MCP. Run 'llm-knowledge-base --kb-root \"${KB_ROOT}\" setup-mcp --client codex' manually."
 fi
 
 # ---------------------------------------------------------------------------
@@ -272,7 +313,7 @@ echo "  App      : ${APP_DIR}/LLMKnowledgeBase"
 echo "  KB folder: ${KB_ROOT}"
 echo ""
 
-if [ "${SKIP_MCP}" = "0" ]; then
+if [ "${SKIP_CLAUDE_MCP}" = "0" ] || [ "${SKIP_CODEX_MCP}" = "0" ]; then
     echo "  → Restart Claude Code to activate the MCP integration."
     echo ""
 fi

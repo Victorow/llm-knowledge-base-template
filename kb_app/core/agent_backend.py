@@ -176,6 +176,9 @@ def run_codex_agent(
                 open(stdout_path, "w", encoding="utf-8") as stdout_file,
                 open(stderr_path, "w", encoding="utf-8") as stderr_file,
             ):
+                popen_kwargs: dict = {}
+                if sys.platform == "win32":
+                    popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
                 completed = subprocess.run(
                     command,
                     input=prompt,
@@ -187,6 +190,7 @@ def run_codex_agent(
                     env=env,
                     timeout=timeout_seconds,
                     check=False,
+                    **popen_kwargs,
                 )
         except subprocess.TimeoutExpired as e:
             stderr = stderr_path.read_text(encoding="utf-8", errors="replace")[-4000:]

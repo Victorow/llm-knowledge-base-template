@@ -107,10 +107,19 @@ def write_json_with_backup(
 def _read_json_object(config_path: Path) -> dict:
     if not config_path.exists():
         return {}
-    data = json.loads(config_path.read_text(encoding="utf-8"))
+    # utf-8-sig transparently strips BOM written by Windows tools (e.g. PowerShell 5)
+    data = json.loads(config_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
         raise ValueError(f"JSON config root must be an object: {config_path}")
     return data
+
+
+def _hook_is_marked(hook: dict, marker: str) -> bool:
+    """Return True if a hook entry belongs to us (by field or legacy command suffix)."""
+    if hook.get("_kb_marker") == marker:
+        return True
+    # Backward compat: old installs embedded the marker as "# MARKER" in command
+    return marker in str(hook.get("command", ""))
 
 
 def _strip_marked_hooks_from_hooks_map(hooks: dict, marker: str) -> None:
@@ -132,7 +141,7 @@ def _strip_marked_hooks_from_hooks_map(hooks: dict, marker: str) -> None:
             kept_hooks = [
                 hook
                 for hook in hook_entries
-                if marker not in str(hook.get("command", ""))
+                if not _hook_is_marked(hook, marker)
             ]
 
             if kept_hooks:

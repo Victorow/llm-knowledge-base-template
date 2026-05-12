@@ -9,16 +9,20 @@ from pathlib import Path
 
 from kb_app.core.mcp_setup import (
     configure_mcp,
+    configure_mcp_claude_code,
     configure_mcp_codex,
+    find_claude_code_config,
     find_claude_config,
     find_codex_config,
     mcp_is_configured,
+    mcp_is_configured_claude_code,
     mcp_is_configured_codex,
     remove_mcp,
+    remove_mcp_claude_code,
     remove_mcp_codex,
 )
 from kb_app.core.operations import compile_logs, run_lint, run_query
-from kb_app.core.paths import resolve_app_paths
+from kb_app.core.paths import default_kb_root, resolve_app_paths
 from kb_app.core.paths import resolve_kb_paths
 from kb_app.diagnostics.export import export_diagnostics
 from kb_app.hooks.commands import capture_hook, render_session_start_json
@@ -31,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="llm-knowledge-base")
     parser.add_argument(
         "--kb-root",
-        default=str(Path.cwd()),
+        default=None,
         help="Knowledge base root directory",
     )
     parser.add_argument(
@@ -44,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     hook_parser = subparsers.add_parser("hook", help="Run AI-client hook command")
     hook_parser.add_argument(
         "hook_event",
-        choices=["session-start", "session-end", "pre-compact"],
+        choices=["session-start", "session-end", "pre-compact", "post-compact"],
     )
 
     profiles_parser = subparsers.add_parser("profiles", help="Manage KB profiles")
@@ -119,7 +123,12 @@ def main(argv: list[str] | None = None) -> int:
     setup_mcp_parser.add_argument(
         "--claude-config",
         default=None,
-        help="Override the Claude config file path",
+        help="Override the Claude Desktop config file path (claude_desktop_config.json)",
+    )
+    setup_mcp_parser.add_argument(
+        "--claude-code-config",
+        default=None,
+        help="Override the Claude Code CLI config file path (~/.claude.json)",
     )
     setup_mcp_parser.add_argument(
         "--codex-config",
@@ -139,7 +148,10 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     app_paths = resolve_app_paths()
-    paths = resolve_kb_paths(Path(args.kb_root))
+    raw_kb_root = Path(args.kb_root) if args.kb_root else (
+        default_kb_root() if args.command == "ui" else Path.cwd()
+    )
+    paths = resolve_kb_paths(raw_kb_root)
     db_path = Path(args.app_db) if args.app_db else app_paths.db_path
 
     if args.command == "hook":
@@ -151,6 +163,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.hook_event == "pre-compact":
             capture_hook(sys.stdin.read(), paths, min_turns=5, context_prefix="flush-context")
+            return 0
+        if args.hook_event == "post-compact":
+            sys.stdin.read()  # drain stdin (Claude Code may send compaction metadata)
+            store = ProfileStore(db_path)
+            if store.get_setting("compile_on_compact", False):
+                profile = store.get_active_profile()
+                if profile is not None:
+                    JobStore(db_path).enqueue(
+                        profile_id=profile.id,
+                        job_type="compile_changed",
+                        payload={},
+                        priority=90,
+                    )
             return 0
 
     if args.command == "profiles":
@@ -199,7 +224,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "mcp":
         from kb_mcp.server import main as mcp_main
-        return mcp_main(["--kb-root", str(paths.root), "--transport", args.transport])
+        return mcp_main([
+            "--kb-root",
+            str(paths.root),
+            "--transport",
+            args.transport,
+            "--app-db",
+            str(db_path),
+        ])
 
     if args.command == "setup-mcp":
         return _handle_setup_mcp(args, paths.root)
@@ -232,19 +264,23 @@ def _handle_profiles(args: argparse.Namespace, db_path: Path) -> int:
 
 def _handle_setup_mcp(args: argparse.Namespace, kb_root: Path) -> int:
     client: str = args.client
-    claude_config = Path(args.claude_config) if args.claude_config else None
-    codex_config = Path(args.codex_config) if args.codex_config else None
+    claude_config      = Path(args.claude_config)      if args.claude_config      else None
+    claude_code_config = Path(args.claude_code_config) if args.claude_code_config else None
+    codex_config       = Path(args.codex_config)       if args.codex_config       else None
     do_claude = client in ("claude", "both")
-    do_codex = client in ("codex", "both")
+    do_codex  = client in ("codex", "both")
 
     if args.status:
         if do_claude:
-            configured = mcp_is_configured(config_path=claude_config)
-            print(f"Claude config : {claude_config or find_claude_config()}")
+            configured     = mcp_is_configured(config_path=claude_config)
+            configured_cli = mcp_is_configured_claude_code(config_path=claude_code_config)
+            print(f"Claude Desktop config : {claude_config or find_claude_config()}")
             print(f"  MCP configured: {'yes' if configured else 'no'}")
+            print(f"Claude Code CLI config: {claude_code_config or find_claude_code_config()}")
+            print(f"  MCP configured: {'yes' if configured_cli else 'no'}")
         if do_codex:
             configured_codex = mcp_is_configured_codex(config_path=codex_config)
-            print(f"Codex config  : {codex_config or find_codex_config()}")
+            print(f"Codex config          : {codex_config or find_codex_config()}")
             print(f"  MCP configured: {'yes' if configured_codex else 'no'}")
         return 0
 
@@ -253,15 +289,21 @@ def _handle_setup_mcp(args: argparse.Namespace, kb_root: Path) -> int:
     if args.remove:
         if do_claude:
             result = remove_mcp(config_path=claude_config)
-            print(f"Claude MCP removed from: {result}" if result else "Claude MCP entry not found.")
+            print(f"Claude Desktop MCP removed from: {result}" if result else "Claude Desktop MCP entry not found.")
+            result_cli = remove_mcp_claude_code(config_path=claude_code_config)
+            print(f"Claude Code CLI MCP removed from: {result_cli}" if result_cli else "Claude Code CLI MCP entry not found.")
         if do_codex:
             result_codex = remove_mcp_codex(config_path=codex_config)
             print(f"Codex MCP removed from: {result_codex}" if result_codex else "Codex MCP entry not found.")
         return 0
 
     if do_claude:
+        # Configure both Claude Desktop (claude_desktop_config.json) and
+        # Claude Code CLI (~/.claude.json) — they are different apps/files.
         config_path = configure_mcp(kb_root, exe_path=exe_path, config_path=claude_config)
-        print(f"Claude MCP configured in: {config_path}")
+        print(f"Claude Desktop MCP configured in: {config_path}")
+        config_path_cli = configure_mcp_claude_code(kb_root, exe_path=exe_path, config_path=claude_code_config)
+        print(f"Claude Code CLI MCP configured in: {config_path_cli}")
     if do_codex:
         config_path_codex = configure_mcp_codex(kb_root, exe_path=exe_path, config_path=codex_config)
         print(f"Codex MCP configured in : {config_path_codex}")

@@ -23,6 +23,10 @@ class UiSmokeTests(unittest.TestCase):
             self.assertEqual(window.stack.count(), len(PAGE_REGISTRY))
             self.assertIsNotNone(app)
 
+    def test_tutorial_is_first_page(self) -> None:
+        from kb_app.ui.app import PAGE_REGISTRY
+        self.assertEqual(PAGE_REGISTRY[0].page_id, "tutorial")
+
 
 if __name__ == "__main__":
     unittest.main()

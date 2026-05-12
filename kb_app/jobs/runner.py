@@ -15,7 +15,7 @@ from kb_app.core.operations import (
     run_query,
     run_structural_lint,
 )
-from kb_app.core.paths import resolve_app_paths, resolve_kb_paths
+from kb_app.core.paths import ensure_kb_layout, is_same_path, resolve_app_paths, resolve_kb_paths
 from kb_app.diagnostics.export import export_diagnostics
 from kb_app.jobs.queue import JobRecord, JobStore
 from kb_app.profiles.store import ProfileStore
@@ -136,11 +136,15 @@ class JobRunner:
     def _install_hooks(self, job: JobRecord, paths) -> dict[str, Any]:
         app_paths = resolve_app_paths()
         client = str(job.payload.get("client", "claude")).lower()
-        executable = str(
-            job.payload.get(
-                "executable",
-                "LLMKnowledgeBase.exe" if sys.platform == "win32" else "llm-knowledge-base",
+        if is_same_path(paths.root, app_paths.install_dir):
+            raise ValueError(
+                "Active KB profile points to the application install directory. "
+                "Select a real KB data directory before installing hooks."
             )
+        paths = ensure_kb_layout(paths.root)
+        executable = resolve_hook_command_prefix(
+            explicit=job.payload.get("executable"),
+            app_paths=app_paths,
         )
         config_path = Path(job.payload.get("config_path") or default_hook_config_path(client))
         backup_dir = Path(job.payload.get("backup_dir") or app_paths.backups_dir)
@@ -176,10 +180,15 @@ class JobRunner:
         startup_dir = Path(job.payload.get("startup_dir") or default_autostart_dir())
         startup_dir.mkdir(parents=True, exist_ok=True)
         launcher_path = startup_dir / (
-            "LLM Knowledge Base.cmd" if sys.platform == "win32" else "llm-knowledge-base.desktop"
+            "LLM Knowledge Base.vbs" if sys.platform == "win32" else "llm-knowledge-base.desktop"
         )
         if sys.platform == "win32":
-            launcher_path.write_text(f'@echo off\nstart "" "{executable}" ui\n', encoding="utf-8")
+            safe_executable = executable.replace('"', '""')
+            launcher_path.write_text(
+                'Set shell = CreateObject("WScript.Shell")\n'
+                f'shell.Run """" & "{safe_executable}" & """ ui", 0, False\n',
+                encoding="utf-8",
+            )
         else:
             launcher_path.write_text(
                 "\n".join(
@@ -199,6 +208,7 @@ class JobRunner:
     def _remove_autostart(self, job: JobRecord) -> dict[str, Any]:
         startup_dir = Path(job.payload.get("startup_dir") or default_autostart_dir())
         candidates = [
+            startup_dir / "LLM Knowledge Base.vbs",
             startup_dir / "LLM Knowledge Base.cmd",
             startup_dir / "llm-knowledge-base.desktop",
         ]
@@ -218,15 +228,43 @@ def default_hook_config_path(client: str) -> Path:
     raise ValueError(f"Unsupported hook client: {client}")
 
 
+def resolve_hook_command_prefix(*, explicit: Any = None, app_paths=None) -> str:
+    """Return a stable command prefix for installed hooks.
+
+    On Windows this prefers the packaged GUI executable by absolute path so AI
+    clients do not rely on PATH lookup and do not flash a console window for
+    context lookups. Source-tree fallback is only for development.
+    """
+    if explicit:
+        return _quote_command_prefix(str(explicit))
+
+    if getattr(sys, "frozen", False):
+        return _quote_command_prefix(str(sys.executable))
+
+    resolved_app_paths = app_paths or resolve_app_paths()
+    win_exe = resolved_app_paths.install_dir / "LLMKnowledgeBase.exe"
+    posix_exe = resolved_app_paths.install_dir / "llm-knowledge-base"
+    if sys.platform == "win32" and win_exe.exists():
+        return _quote_command_prefix(str(win_exe))
+    if sys.platform != "win32" and posix_exe.exists():
+        return _quote_command_prefix(str(posix_exe))
+
+    source_root = Path(__file__).resolve().parents[2]
+    return f'uv run --directory "{source_root}" python -m kb_app'
+
+
 def build_hook_groups(*, client: str, executable: str, kb_root: Path) -> dict[str, list[dict]]:
+    exe_str = _quote_command_prefix(executable)
+
     def command(event: str) -> str:
-        return f'{executable} --kb-root "{kb_root}" hook {event} # {KB_HOOK_MARKER}'
+        return f'{exe_str} --kb-root "{kb_root}" hook {event}'
 
     if client == "claude":
         return {
             "SessionStart": [_hook_group("", command("session-start"), 15)],
-            "SessionEnd": [_hook_group("", command("session-end"), 10)],
-            "PreCompact": [_hook_group("", command("pre-compact"), 10)],
+            "SessionEnd":   [_hook_group("", command("session-end"), 10)],
+            "PreCompact":   [_hook_group("", command("pre-compact"), 10)],
+            "PostCompact":  [_hook_group("", command("post-compact"), 30)],
         }
     if client == "codex":
         return {
@@ -239,8 +277,22 @@ def build_hook_groups(*, client: str, executable: str, kb_root: Path) -> dict[st
 def _hook_group(matcher: str, command: str, timeout: int) -> dict:
     return {
         "matcher": matcher,
-        "hooks": [{"type": "command", "command": command, "timeout": timeout}],
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": timeout,
+            "_kb_marker": KB_HOOK_MARKER,
+        }],
     }
+
+
+def _quote_command_prefix(command_prefix: str) -> str:
+    value = command_prefix.strip()
+    if not value or value.startswith('"') or value.startswith("uv "):
+        return value
+    if " -m " in value or " --directory " in value:
+        return value
+    return f'"{value}"' if " " in value else value
 
 
 def default_autostart_dir() -> Path:

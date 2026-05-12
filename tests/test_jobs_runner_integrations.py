@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -108,6 +109,9 @@ class JobRunnerIntegrationTests(unittest.TestCase):
 
             launcher_path = Path(jobs.get_job(install_id).result["launcher_path"])
             self.assertTrue(launcher_path.exists())
+            if sys.platform == "win32":
+                self.assertEqual(launcher_path.suffix.lower(), ".vbs")
+                self.assertIn("WScript.Shell", launcher_path.read_text(encoding="utf-8"))
 
             remove_id = jobs.enqueue(profile_id=profile_id, job_type="remove_autostart", payload=payload)
             runner.run_next()

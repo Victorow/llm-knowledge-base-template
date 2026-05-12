@@ -11,13 +11,18 @@ block_cipher = None
 hiddenimports = ["PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets"]
 hiddenimports += collect_submodules("kb_app")
 hiddenimports += collect_submodules("kb_mcp")
-hiddenimports += ["mcp", "fastmcp", "anyio", "anyio.streams", "anyio.streams.memory"]
+hiddenimports += ["mcp", "anyio", "anyio.streams", "anyio.streams.memory"]
+
+ICON = str(ROOT / "packaging" / "icon" / "icon.ico")
 
 a = Analysis(
     [str(ROOT / "kb_app" / "__main__.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[],
+    datas=[
+        (str(ROOT / "AGENTS.md"), "."),
+        (str(ROOT / "CONTEXT.md"), "."),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -46,6 +51,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
 )
 coll = COLLECT(
     exe,

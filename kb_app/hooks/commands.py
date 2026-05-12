@@ -151,7 +151,19 @@ def safe_filename_fragment(value: str) -> str:
 
 
 def spawn_flush_process(paths: KbPaths, context_file: Path, session_id: str) -> None:
-    """Spawn the source-tree flush worker without blocking the hook lifecycle."""
+    """Flush captured context to the daily log.
+
+    In a packaged EXE (sys.frozen) the source tree and uv are unavailable, so
+    we write the raw context directly to today's daily log.  The LLM compilation
+    step happens later when the user runs Compile Changed.
+
+    In development mode we spawn the source-tree flush.py worker as before,
+    falling back to the direct-write approach if uv is not on PATH.
+    """
+    if getattr(sys, "frozen", False):
+        _append_context_direct(paths, context_file)
+        return
+
     flush_script = paths.scripts_dir / "flush.py"
     command = [
         "uv",
@@ -164,7 +176,7 @@ def spawn_flush_process(paths: KbPaths, context_file: Path, session_id: str) -> 
         session_id,
     ]
 
-    popen_kwargs = {
+    popen_kwargs: dict = {
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
     }
@@ -173,4 +185,38 @@ def spawn_flush_process(paths: KbPaths, context_file: Path, session_id: str) -> 
     else:
         popen_kwargs["start_new_session"] = True
 
-    subprocess.Popen(command, **popen_kwargs)
+    try:
+        subprocess.Popen(command, **popen_kwargs)
+    except Exception:
+        # uv not on PATH or flush.py missing — fall back to direct write
+        _append_context_direct(paths, context_file)
+
+
+def _append_context_direct(paths: KbPaths, context_file: Path) -> None:
+    """Append raw context to today's daily log (no LLM summarisation)."""
+    from datetime import datetime, timezone
+
+    try:
+        context = context_file.read_text(encoding="utf-8").strip()
+        if not context:
+            context_file.unlink(missing_ok=True)
+            return
+
+        today = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
+        time_str = datetime.now(timezone.utc).astimezone().strftime("%H:%M")
+        paths.daily_dir.mkdir(parents=True, exist_ok=True)
+        log_path = paths.daily_dir / f"{today}.md"
+
+        if not log_path.exists():
+            log_path.write_text(
+                f"# Daily Log: {today}\n\n## Sessions\n\n",
+                encoding="utf-8",
+            )
+
+        entry = f"\n### Session ({time_str})\n\n{context}\n\n"
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(entry)
+
+        context_file.unlink(missing_ok=True)
+    except Exception:
+        pass
