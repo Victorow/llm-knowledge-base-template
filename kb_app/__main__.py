@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from kb_app.core.costs import format_llm_usage_estimate
 from kb_app.core.mcp_setup import (
     configure_mcp,
     configure_mcp_claude_code,
@@ -197,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{'[DRY RUN] ' if result.dry_run else ''}Files to compile ({len(result.files)}):")
         for file_name in result.files:
             print(f"  - {file_name}")
+        if not result.dry_run:
+            print(format_llm_usage_estimate(result.total_cost))
         return 0
 
     if args.command == "query":

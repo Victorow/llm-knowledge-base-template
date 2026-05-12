@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from kb_app.core.operations import compile_logs
 from kb_app.core.paths import resolve_kb_paths
+from kb_app.core.costs import format_llm_usage_estimate
 from kb_app.core.wiki import list_wiki_articles
 
 
@@ -43,7 +44,8 @@ def main() -> int:
 
     if not result.dry_run:
         articles = list_wiki_articles(paths)
-        print(f"\nCompilation complete. Total cost: ${result.total_cost:.2f}")
+        print("\nCompilation complete.")
+        print(format_llm_usage_estimate(result.total_cost))
         print(f"Knowledge base: {len(articles)} articles")
 
     return 0

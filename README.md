@@ -91,7 +91,7 @@ sh ~/Applications/llm-knowledge-base/uninstall.sh
 - [Variáveis de Ambiente](#variáveis-de-ambiente)
 - [Estrutura de Arquivos](#estrutura-de-arquivos)
 - [Empacotamento](#empacotamento)
-- [Custos](#custos)
+- [Uso do Backend LLM](#uso-do-backend-llm)
 
 ---
 
@@ -506,7 +506,7 @@ Com o MCP ativo, o Claude pode usar as seguintes ferramentas durante uma convers
 
 | Ferramenta | Para que serve |
 |---|---|
-| `kb_compile` | Compila logs diários em artigos; suporta `force_all`, `file_name`, `dry_run` |
+| `kb_compile` | Enfileira compilação de logs como job de background; `dry_run` lista arquivos sem rodar LLM |
 | `kb_lint` | Verifica saúde da wiki: links quebrados, órfãos, contradições |
 | `kb_add_memory` | Adiciona uma anotação manual ao log do dia atual |
 | `kb_pending_logs` | Lista logs diários ainda não compilados |
@@ -649,9 +649,9 @@ Instala apenas em diretórios de usuário — sem `sudo`.
 
 ---
 
-## Custos
+## Uso do Backend LLM
 
-| Operação | Custo típico |
+| Operação | Uso típico do backend LLM |
 |---|---|
 | Session flush (app instalado) | Gratuito — escrita direta, sem LLM |
 | Session flush (desenvolvimento) | Pequena requisição de resumo |
@@ -660,7 +660,13 @@ Instala apenas em diretórios de usuário — sem `sudo`.
 | Lint estrutural | Gratuito (sem LLM) |
 | Lint completo | Requisição de verificação de contradições |
 
-O custo acumulado fica disponível via `kb_status` no MCP ou no arquivo de estado da KB.
+A métrica exibida como custo é uma estimativa de uso reportada pelo backend LLM
+(por exemplo, Claude Agent SDK), não uma cobrança feita por este aplicativo.
+Ela serve para dar visibilidade de consumo/cota do provedor. O app não processa
+pagamentos e não cobra nada diretamente.
+
+Essa estimativa acumulada fica disponível via `kb_status` no MCP ou no arquivo
+de estado da KB como uso reportado pelo backend LLM.
 
 ---
 

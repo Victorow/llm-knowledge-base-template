@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import sys
 import threading
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from kb_app.core.config_merge import KB_HOOK_MARKER
+from kb_app.core.costs import format_llm_usage_estimate
 from kb_app.core.mcp_setup import (
     find_claude_code_config,
     find_claude_config,
@@ -107,6 +109,21 @@ def format_dashboard_summary(
     backend_text = backend or "no backend"
     last_job_text = last_job_status or "no jobs yet"
     return f"{profile_text} | backend: {backend_text} | agent: {agent_status} | last job: {last_job_text}"
+
+
+def format_job_result_summary(result: dict[str, Any]) -> str:
+    """Return a compact user-facing summary for job results."""
+    parts: list[str] = []
+    files = result.get("files")
+    if isinstance(files, list):
+        label = "file" if len(files) == 1 else "files"
+        parts.append(f"{len(files)} {label}")
+
+    usage = result.get("llm_usage_estimate_usd", result.get("total_cost"))
+    if isinstance(usage, (int, float)):
+        parts.append(format_llm_usage_estimate(float(usage)))
+
+    return " | ".join(parts)
 
 
 def normalize_startup_kb_root(
@@ -959,11 +976,18 @@ class ControlPanelWindow:
         conn = self.job_store._connection()
         with conn as db:
             rows = db.execute(
-                "SELECT id, job_type, status, created_at FROM jobs ORDER BY created_at DESC LIMIT 100"
+                "SELECT id, job_type, status, created_at, result_json FROM jobs "
+                "ORDER BY created_at DESC LIMIT 100"
             ).fetchall()
         for row in rows:
+            result_summary = ""
+            try:
+                result_summary = format_job_result_summary(json.loads(row["result_json"] or "{}"))
+            except (TypeError, json.JSONDecodeError):
+                result_summary = ""
+            suffix = f" | {result_summary}" if result_summary else ""
             item = self.QtWidgets.QListWidgetItem(
-                f"{row['status']} | {row['job_type']} | {row['created_at']}"
+                f"{row['status']} | {row['job_type']} | {row['created_at']}{suffix}"
             )
             item.setData(1, row["id"])
             self.jobs_list.addItem(item)

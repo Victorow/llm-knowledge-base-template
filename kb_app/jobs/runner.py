@@ -75,13 +75,25 @@ class JobRunner:
 
         if job.job_type == "compile_changed":
             result = compile_logs(paths, backend=backend)
-            return {"files": result.files, "dry_run": result.dry_run, "total_cost": result.total_cost}
+            return {
+                "files": result.files,
+                "dry_run": result.dry_run,
+                "llm_usage_estimate_usd": result.total_cost,
+            }
         if job.job_type == "compile_all":
             result = compile_logs(paths, force_all=True, backend=backend)
-            return {"files": result.files, "dry_run": result.dry_run, "total_cost": result.total_cost}
+            return {
+                "files": result.files,
+                "dry_run": result.dry_run,
+                "llm_usage_estimate_usd": result.total_cost,
+            }
         if job.job_type == "compile_file":
             result = compile_logs(paths, file_name=job.payload["file"], backend=backend)
-            return {"files": result.files, "dry_run": result.dry_run, "total_cost": result.total_cost}
+            return {
+                "files": result.files,
+                "dry_run": result.dry_run,
+                "llm_usage_estimate_usd": result.total_cost,
+            }
         if job.job_type == "query":
             answer = run_query(paths, job.payload["question"], backend=backend)
             return {"answer": answer}

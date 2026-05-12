@@ -4,7 +4,12 @@ import subprocess
 import sys
 import unittest
 
-from kb_app.ui.app import PAGE_REGISTRY, build_quick_action_job, format_dashboard_summary
+from kb_app.ui.app import (
+    PAGE_REGISTRY,
+    build_quick_action_job,
+    format_dashboard_summary,
+    format_job_result_summary,
+)
 
 
 class UiModelTests(unittest.TestCase):
@@ -56,6 +61,14 @@ class UiModelTests(unittest.TestCase):
 
         self.assertIn("No active profile", summary)
         self.assertIn("agent: stopped", summary)
+
+    def test_job_result_summary_labels_llm_usage_estimate(self) -> None:
+        summary = format_job_result_summary({"files": ["2026-05-12.md"], "total_cost": 0.3429})
+
+        self.assertIn("1 file", summary)
+        self.assertIn("LLM backend usage estimate reported by provider: $0.3429", summary)
+        self.assertNotIn("Total cost", summary)
+        self.assertNotIn("API cost", summary)
 
     def test_ui_help_command_does_not_launch_qt(self) -> None:
         completed = subprocess.run(

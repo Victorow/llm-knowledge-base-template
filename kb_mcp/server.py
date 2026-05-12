@@ -37,11 +37,12 @@ from kb_app.core.mcp_setup import (
 )
 from kb_app.core.operations import (
     append_manual_memory,
-    compile_logs,
     run_lint,
     run_query,
     run_structural_lint,
+    select_logs_to_compile,
 )
+from kb_app.core.costs import format_llm_usage_estimate
 from kb_app.core.paths import ensure_kb_layout, is_same_path, resolve_kb_paths
 from kb_app.core.wiki import list_wiki_articles, read_wiki_index
 from kb_app.diagnostics.export import export_diagnostics
@@ -153,10 +154,11 @@ async def kb_compile(
     file_name: str | None = None,
     dry_run: bool = False,
 ) -> str:
-    """Compile daily logs into wiki articles using the LLM backend.
+    """Queue daily log compilation into wiki articles.
 
-    The compiler detects changes by SHA-256 hash — only modified logs are reprocessed
-    unless force_all is True.
+    Non-dry-run compilation is queued as a desktop job so long compiles do not
+    block the MCP client timeout. Dry-run still returns the selected files
+    synchronously without calling the LLM backend.
 
     Args:
         force_all: Recompile all logs even if unchanged.
@@ -164,22 +166,25 @@ async def kb_compile(
         dry_run: List what would be compiled without actually running.
 
     Returns:
-        Summary of compiled files and total cost in USD.
+        Dry-run file list or queued job id/status.
     """
     import asyncio as _asyncio
     paths = _paths()
-    result = await _asyncio.to_thread(
-        compile_logs, paths, force_all=force_all, file_name=file_name, dry_run=dry_run
-    )
-    if not result.files:
-        return "Nothing to compile — all daily logs are up to date."
-    prefix = "[DRY RUN] " if result.dry_run else ""
-    lines = [f"{prefix}Files compiled ({len(result.files)}):"]
-    for name in result.files:
-        lines.append(f"  - {name}")
-    if not dry_run and result.total_cost > 0:
-        lines.append(f"Total cost: ${result.total_cost:.4f}")
-    return "\n".join(lines)
+    if dry_run:
+        selected = await _asyncio.to_thread(
+            select_logs_to_compile, paths, force_all=force_all, file_name=file_name
+        )
+        if not selected:
+            return "Nothing to compile - all daily logs are up to date."
+        lines = [f"[DRY RUN] Files to compile ({len(selected)}):"]
+        lines.extend(f"  - {path.name}" for path in selected)
+        return "\n".join(lines)
+
+    if file_name:
+        return _run_ui_action("compile_file", {"file": file_name}, run_now=False)
+    if force_all:
+        return _run_ui_action("compile_all", {}, run_now=False)
+    return _run_ui_action("compile_changed", {}, run_now=False)
 
 
 @mcp.tool()
@@ -338,30 +343,40 @@ def kb_status() -> str:
     """Return the current status of the knowledge base.
 
     Shows: KB root, daily log count, article count, last compile timestamp,
-    query count, and total API cost spent so far.
+    query count, and provider-reported LLM backend usage estimate.
     """
     from kb_app.core.wiki import load_state, list_raw_files, list_wiki_articles
     paths = _paths()
     state = load_state(paths)
 
-    daily_count   = len(list_raw_files(paths))
+    daily_logs    = list_raw_files(paths)
+    pending_logs  = select_logs_to_compile(paths, force_all=False)
+    pending_names = {path.name for path in pending_logs}
+    daily_count   = len(daily_logs)
     article_count = len(list_wiki_articles(paths))
     ingested      = state.get("ingested", {})
-    compiled      = len(ingested)
+    compiled      = sum(
+        1
+        for log_path in daily_logs
+        if log_path.name in ingested and log_path.name not in pending_names
+    )
 
     last_compile = "never"
     if ingested:
-        latest = max(v.get("compiled_at", "") for v in ingested.values() if v.get("compiled_at"))
+        latest = max(
+            (v.get("compiled_at", "") for v in ingested.values() if v.get("compiled_at")),
+            default="",
+        )
         if latest:
             last_compile = latest
 
     lines = [
         f"KB root       : {_kb_root}",
-        f"Daily logs    : {daily_count} files ({compiled} compiled, {daily_count - compiled} pending)",
+        f"Daily logs    : {daily_count} files ({compiled} compiled, {len(pending_logs)} pending)",
         f"Wiki articles : {article_count}",
         f"Last compile  : {last_compile}",
         f"Query count   : {state.get('query_count', 0)}",
-        f"Total API cost: ${state.get('total_cost', 0.0):.4f}",
+        format_llm_usage_estimate(float(state.get("total_cost", 0.0))),
     ]
     return "\n".join(lines)
 

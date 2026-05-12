@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -57,6 +58,64 @@ class McpUiActionsTests(unittest.TestCase):
 
             active = ProfileStore(db_path).get_active_profile()
             self.assertEqual(Path(active.root_path), kb_root)
+
+    def test_kb_compile_force_all_enqueues_job_without_running_backend(self) -> None:
+        import kb_mcp.server as server
+        from kb_app.jobs.queue import JobStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            kb_root = base / "kb-data"
+            db_path = base / "app.db"
+            server._kb_root = kb_root
+            server._app_db_path = db_path
+
+            result = asyncio.run(server.kb_compile(force_all=True))
+            self.assertIn("Queued job", result)
+            self.assertIn("compile_all", result)
+
+            jobs = JobStore(db_path)
+            queued = jobs.claim_next()
+            self.assertEqual(queued.job_type, "compile_all")
+
+    def test_kb_compile_file_enqueues_file_job_with_payload(self) -> None:
+        import kb_mcp.server as server
+        from kb_app.jobs.queue import JobStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            kb_root = base / "kb-data"
+            db_path = base / "app.db"
+            server._kb_root = kb_root
+            server._app_db_path = db_path
+
+            result = asyncio.run(server.kb_compile(file_name="2026-05-12.md"))
+
+            self.assertIn("Queued job", result)
+            self.assertIn("compile_file", result)
+
+            queued = JobStore(db_path).claim_next()
+            self.assertEqual(queued.job_type, "compile_file")
+            self.assertEqual(queued.payload["file"], "2026-05-12.md")
+
+    def test_kb_status_counts_changed_logs_as_pending(self) -> None:
+        import kb_mcp.server as server
+        from kb_app.core.paths import resolve_kb_paths
+        from kb_app.core.wiki import save_state
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_kb_paths(root)
+            paths.daily_dir.mkdir(parents=True)
+            paths.knowledge_dir.mkdir(parents=True)
+            daily = paths.daily_dir / "2026-05-12.md"
+            daily.write_text("changed", encoding="utf-8")
+            save_state(paths, {"ingested": {"2026-05-12.md": {"hash": "old"}}, "query_count": 0})
+            server._kb_root = root
+
+            status = server.kb_status()
+
+            self.assertIn("Daily logs    : 1 files (0 compiled, 1 pending)", status)
 
 
 if __name__ == "__main__":
