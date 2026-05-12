@@ -10,6 +10,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -289,6 +290,19 @@ class UiFirstRunTest(unittest.TestCase):
             (root / "kb" / "knowledge").mkdir(parents=True)
             window = ControlPanelWindow(root, Path(tmp) / "app.db")
             self.assertEqual(window.stack.count(), len(PAGE_REGISTRY))
+
+    def test_first_run_dialog_can_open_without_window_flag_type_error(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6 import QtWidgets
+        from kb_app.ui.app import ControlPanelWindow
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "kb"
+            window = ControlPanelWindow(root, Path(tmp) / "app.db")
+            with mock.patch.object(QtWidgets.QDialog, "exec", return_value=0):
+                window._show_first_run_dialog()
 
 
 if __name__ == "__main__":

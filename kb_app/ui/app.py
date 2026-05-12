@@ -621,7 +621,7 @@ class ControlPanelWindow:
         create_btn.clicked.connect(create)
 
         # Prevent closing without creating a profile
-        dialog.setWindowFlag(0x00040000, False)  # Qt.WindowCloseButtonHint
+        dialog.setWindowFlag(self.QtCore.Qt.WindowType.WindowCloseButtonHint, False)
         dialog.exec()
 
     def _detect_default_kb_root(self) -> Path:
