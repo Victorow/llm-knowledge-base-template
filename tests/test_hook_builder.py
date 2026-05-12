@@ -80,6 +80,31 @@ class HookGroupBuilderTests(unittest.TestCase):
         matcher = groups["SessionStart"][0]["matcher"]
         self.assertEqual(matcher, "startup|resume")
 
+    def test_codex_windows_command_uses_powershell_call_operator(self) -> None:
+        exe = r"C:\Program Files\LLM Knowledge Base\LLMKnowledgeBase.exe"
+        kb = Path(r"C:\Users\Dev\Documents\LLM Knowledge Base")
+
+        with patch("sys.platform", "win32"):
+            groups = build_hook_groups(client="codex", executable=exe, kb_root=kb)
+
+        command = groups["SessionStart"][0]["hooks"][0]["command"]
+        self.assertEqual(
+            command,
+            "& 'C:\\Program Files\\LLM Knowledge Base\\LLMKnowledgeBase.exe' "
+            "--kb-root 'C:\\Users\\Dev\\Documents\\LLM Knowledge Base' hook session-start",
+        )
+
+    def test_codex_windows_command_escapes_single_quotes(self) -> None:
+        exe = r"C:\Program Files\Owner's KB\LLMKnowledgeBase.exe"
+        kb = Path(r"C:\Users\Dev\Owner's Knowledge Base")
+
+        with patch("sys.platform", "win32"):
+            groups = build_hook_groups(client="codex", executable=exe, kb_root=kb)
+
+        command = groups["Stop"][0]["hooks"][0]["command"]
+        self.assertIn("'C:\\Program Files\\Owner''s KB\\LLMKnowledgeBase.exe'", command)
+        self.assertIn("'C:\\Users\\Dev\\Owner''s Knowledge Base'", command)
+
 
 class InstallHooksExecutableTests(unittest.TestCase):
     """_install_hooks uses sys.executable when running as frozen EXE."""

@@ -254,12 +254,12 @@ def resolve_hook_command_prefix(*, explicit: Any = None, app_paths=None) -> str:
 
 
 def build_hook_groups(*, client: str, executable: str, kb_root: Path) -> dict[str, list[dict]]:
-    exe_str = _quote_command_prefix(executable)
-
-    def command(event: str) -> str:
-        return f'{exe_str} --kb-root "{kb_root}" hook {event}'
-
     if client == "claude":
+        exe_str = _quote_command_prefix(executable)
+
+        def command(event: str) -> str:
+            return f'{exe_str} --kb-root "{kb_root}" hook {event}'
+
         return {
             "SessionStart": [_hook_group("", command("session-start"), 15)],
             "SessionEnd":   [_hook_group("", command("session-end"), 10)],
@@ -267,6 +267,9 @@ def build_hook_groups(*, client: str, executable: str, kb_root: Path) -> dict[st
             "PostCompact":  [_hook_group("", command("post-compact"), 30)],
         }
     if client == "codex":
+        def command(event: str) -> str:
+            return _codex_hook_command(executable, kb_root, event)
+
         return {
             "SessionStart": [_hook_group("startup|resume", command("session-start"), 15)],
             "Stop": [_hook_group("", command("session-end"), 10)],
@@ -293,6 +296,44 @@ def _quote_command_prefix(command_prefix: str) -> str:
     if " -m " in value or " --directory " in value:
         return value
     return f'"{value}"' if " " in value else value
+
+
+def _codex_hook_command(executable: str, kb_root: Path, event: str) -> str:
+    """Build Codex hook commands for the shell Codex uses on each platform."""
+    if sys.platform != "win32":
+        exe_str = _quote_command_prefix(executable)
+        return f'{exe_str} --kb-root "{kb_root}" hook {event}'
+
+    value = executable.strip()
+    program = _simple_program_prefix(value)
+    if program is not None:
+        return (
+            f"& {_quote_powershell_arg(program)} "
+            f"--kb-root {_quote_powershell_arg(str(kb_root))} hook {event}"
+        )
+
+    return f"{value} --kb-root {_quote_powershell_arg(str(kb_root))} hook {event}"
+
+
+def _simple_program_prefix(command_prefix: str) -> str | None:
+    """Return the executable path when the prefix is only a program, not a shell command."""
+    value = command_prefix.strip()
+    if not value:
+        return None
+    if value.startswith('"'):
+        closing_quote = value.find('"', 1)
+        if closing_quote == len(value) - 1:
+            return value[1:closing_quote]
+        return None
+    if value.lower().endswith(".exe"):
+        return value
+    if any(ch.isspace() for ch in value):
+        return None
+    return value
+
+
+def _quote_powershell_arg(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def default_autostart_dir() -> Path:
